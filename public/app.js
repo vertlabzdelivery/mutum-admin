@@ -42,7 +42,7 @@ async function apiRequest(method, path, body, auth = false) {
   const headers = { 'Content-Type': 'application/json' };
   if (auth && state.accessToken) headers.Authorization = `Bearer ${state.accessToken}`;
 
-  const response = await fetch(`/proxy${path}`, {
+  const response = await fetch(`/api/proxy${path}`, {
     method,
     headers: {
       ...headers,
