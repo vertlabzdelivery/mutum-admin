@@ -42,7 +42,8 @@ async function apiRequest(method, path, body, auth = false) {
   const headers = { 'Content-Type': 'application/json' };
   if (auth && state.accessToken) headers.Authorization = `Bearer ${state.accessToken}`;
 
-  const response = await fetch(`/api/proxy${path}`, {
+  const proxyUrl = `/api/proxy?path=${encodeURIComponent(path)}`;
+  const response = await fetch(proxyUrl, {
     method,
     headers: {
       ...headers,
@@ -100,14 +101,15 @@ function initLogin() {
       const auth = await apiRequest('POST', '/auth/login', body);
       persistAuth(auth);
       const me = await apiRequest('GET', '/auth/me', null, true);
-      if (me.role !== 'ADMIN') {
+      const resolvedRole = me?.role || me?.user?.role || auth?.user?.role || state.currentUser?.role;
+      if (resolvedRole !== 'ADMIN') {
         clearAuth();
         errorEl.textContent = 'Somente contas ADMIN podem entrar neste painel.';
         errorEl.classList.remove('hidden');
         return;
       }
-      state.currentUser = me;
-      saveJson(STORAGE_KEYS.user, me);
+      state.currentUser = { ...(me?.user || {}), ...(typeof me === 'object' ? me : {}), role: resolvedRole };
+      saveJson(STORAGE_KEYS.user, state.currentUser);
       render();
     } catch (error) {
       errorEl.textContent = error.message || 'Não foi possível entrar.';
@@ -381,8 +383,8 @@ function renderSummary(lastRestaurant) {
     try {
       const me = await apiRequest('GET', '/auth/me', null, true);
       if (me.role !== 'ADMIN') throw new Error('Somente ADMIN pode usar este painel.');
-      state.currentUser = me;
-      saveJson(STORAGE_KEYS.user, me);
+      state.currentUser = { ...(me?.user || {}), ...(typeof me === 'object' ? me : {}), role: resolvedRole };
+      saveJson(STORAGE_KEYS.user, state.currentUser);
     } catch {
       clearAuth();
     }
