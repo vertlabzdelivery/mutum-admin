@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mutum Delivery • Painel Admin</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <template id="loginTemplate">
+      <div class="auth-shell">
+        <div class="auth-card">
+          <div class="auth-topline"></div>
+          <div class="brand auth-brand">
+            <div class="brand-mark">MD</div>
+            <div>
+              <h1>Painel Admin</h1>
+              <p>Entre com uma conta administradora para gerenciar a base do delivery.</p>
+            </div>
+          </div>
+          <form id="loginForm" class="auth-form">
+            <label>E-mail</label>
+            <input name="email" type="email" placeholder="admin@exemplo.com" required />
+            <label>Senha</label>
+            <input name="password" type="password" placeholder="Sua senha" required />
+            <button type="submit" class="btn-primary btn-block">Entrar</button>
+          </form>
+          <p id="loginError" class="form-error hidden"></p>
+        </div>
+      </div>
+    </template>
+
+    <template id="dashboardTemplate">
+      <div class="page">
+        <header class="topbar">
+          <div class="brand">
+            <div class="brand-mark">MD</div>
+            <div>
+              <strong>Mutum Delivery</strong>
+              <span>Painel administrativo</span>
+            </div>
+          </div>
+          <div class="topbar-actions">
+            <span id="adminBadge" class="user-pill"></span>
+            <button id="logoutBtn" class="btn-soft">Sair</button>
+          </div>
+        </header>
+
+        <main class="dashboard">
+          <section class="hero-card">
+            <div>
+              <h2>Gestão rápida</h2>
+              <p>Crie contas de restaurante, cadastre restaurante por ownerId e organize estados, cidades e bairros.</p>
+            </div>
+            <div class="hero-status" id="statusBox">Pronto.</div>
+          </section>
+
+          <section class="grid two-cols">
+            <article class="panel-card">
+              <div class="section-title">
+                <h3>Conta de restaurante</h3>
+                <p>Cria um usuário com papel RESTAURANT e já retorna os dados gerados pela API.</p>
+              </div>
+              <form id="restaurantAccountForm" class="stack-form">
+                <div class="grid two-cols inner-grid">
+                  <div>
+                    <label>Nome do responsável</label>
+                    <input name="ownerName" required />
+                  </div>
+                  <div>
+                    <label>Telefone do responsável</label>
+                    <input name="ownerPhone" />
+                  </div>
+                  <div>
+                    <label>E-mail</label>
+                    <input name="email" type="email" required />
+                  </div>
+                  <div>
+                    <label>Senha</label>
+                    <input name="password" type="password" minlength="6" required />
+                  </div>
+                  <div>
+                    <label>Nome do restaurante</label>
+                    <input name="restaurantName" required />
+                  </div>
+                  <div>
+                    <label>Telefone do restaurante</label>
+                    <input name="restaurantPhone" />
+                  </div>
+                  <div class="full">
+                    <label>Endereço textual</label>
+                    <input name="address" placeholder="Rua, número, bairro" required />
+                  </div>
+                  <div class="full">
+                    <label>Descrição do restaurante</label>
+                    <textarea name="restaurantDescription" rows="3"></textarea>
+                  </div>
+                  <div class="full">
+                    <label>Logo URL</label>
+                    <input name="restaurantLogoUrl" />
+                  </div>
+                  <div>
+                    <label>Estado</label>
+                    <select id="restaurantAccountState"></select>
+                  </div>
+                  <div>
+                    <label>Cidade</label>
+                    <select name="cityId" id="restaurantAccountCity"></select>
+                  </div>
+                </div>
+                <button type="submit" class="btn-primary">Criar conta restaurante</button>
+              </form>
+
+              <div class="result-box">
+                <div class="result-head">
+                  <strong>Últimos cadastros</strong>
+                  <button id="clearCreatedUsers" class="btn-link" type="button">Limpar</button>
+                </div>
+                <div id="createdUsersList" class="created-list empty-state">Nenhuma conta criada ainda.</div>
+              </div>
+            </article>
+
+            <article class="panel-card">
+              <div class="section-title">
+                <h3>Criar restaurante por ownerId</h3>
+                <p>Use quando já tiver um usuário RESTAURANT e quiser vincular um novo restaurante.</p>
+              </div>
+              <form id="restaurantForm" class="stack-form">
+                <div class="grid two-cols inner-grid">
+                  <div class="full">
+                    <label>ownerId</label>
+                    <input name="ownerId" id="restaurantOwnerId" placeholder="UUID do usuário RESTAURANT" required />
+                  </div>
+                  <div>
+                    <label>Nome</label>
+                    <input name="name" required />
+                  </div>
+                  <div>
+                    <label>Telefone</label>
+                    <input name="phone" />
+                  </div>
+                  <div class="full">
+                    <label>Endereço textual</label>
+                    <input name="address" required />
+                  </div>
+                  <div class="full">
+                    <label>Descrição</label>
+                    <textarea name="description" rows="3"></textarea>
+                  </div>
+                  <div class="full">
+                    <label>Logo URL</label>
+                    <input name="logoUrl" />
+                  </div>
+                  <div>
+                    <label>Pedido mínimo</label>
+                    <input name="minOrder" type="number" min="0" step="0.01" />
+                  </div>
+                  <div>
+                    <label>Estado</label>
+                    <select id="restaurantState"></select>
+                  </div>
+                  <div class="full">
+                    <label>Cidade</label>
+                    <select name="cityId" id="restaurantCity"></select>
+                  </div>
+                </div>
+                <div class="row-wrap">
+                  <button type="submit" class="btn-primary">Criar restaurante</button>
+                  <button type="button" id="useLastOwnerBtn" class="btn-soft">Usar último ownerId</button>
+                </div>
+              </form>
+            </article>
+          </section>
+
+          <section class="grid three-cols">
+            <article class="panel-card">
+              <div class="section-title">
+                <h3>Estados</h3>
+                <p>Cadastre novos estados.</p>
+              </div>
+              <form id="stateForm" class="stack-form compact-form">
+                <label>Nome</label>
+                <input name="name" required />
+                <label>UF</label>
+                <input name="code" maxlength="2" required />
+                <button type="submit" class="btn-primary">Adicionar estado</button>
+              </form>
+              <div id="statesList" class="simple-list"></div>
+            </article>
+
+            <article class="panel-card">
+              <div class="section-title">
+                <h3>Cidades</h3>
+                <p>Escolha o estado e crie uma nova cidade.</p>
+              </div>
+              <form id="cityForm" class="stack-form compact-form">
+                <label>Estado</label>
+                <select name="stateId" id="cityStateSelect"></select>
+                <label>Nome da cidade</label>
+                <input name="name" required />
+                <button type="submit" class="btn-primary">Adicionar cidade</button>
+              </form>
+              <div id="citiesList" class="simple-list"></div>
+            </article>
+
+            <article class="panel-card">
+              <div class="section-title">
+                <h3>Bairros</h3>
+                <p>Escolha a cidade e crie um novo bairro.</p>
+              </div>
+              <form id="neighborhoodForm" class="stack-form compact-form">
+                <label>Estado</label>
+                <select id="neighborhoodStateSelect"></select>
+                <label>Cidade</label>
+                <select name="cityId" id="neighborhoodCitySelect"></select>
+                <label>Nome do bairro</label>
+                <input name="name" required />
+                <button type="submit" class="btn-primary">Adicionar bairro</button>
+              </form>
+              <div id="neighborhoodsList" class="simple-list"></div>
+            </article>
+          </section>
+
+          <section class="panel-card">
+            <div class="section-title">
+              <h3>Resumo rápido</h3>
+              <p>Os cadastros recentes ficam acessíveis aqui para copiar IDs com facilidade.</p>
+            </div>
+            <div id="summaryCards" class="summary-grid"></div>
+          </section>
+        </main>
+      </div>
+    </template>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

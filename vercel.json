@@ -1,0 +1,7 @@
+{
+  "rewrites": [
+    { "source": "/proxy/(.*)", "destination": "/server.js" },
+    { "source": "/health", "destination": "/server.js" },
+    { "source": "/(.*)", "destination": "/server.js" }
+  ]
+}

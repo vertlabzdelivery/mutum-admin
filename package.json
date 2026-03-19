@@ -1,0 +1,9 @@
+{
+  "name": "delivery-admin-panel",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Painel admin enxuto para a API de delivery",
+  "scripts": {
+    "start": "node server.js"
+  }
+}
