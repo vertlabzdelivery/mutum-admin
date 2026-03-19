@@ -1,7 +1,7 @@
 {
-  "rewrites": [
-    { "source": "/api/proxy/:path*", "destination": "/api/proxy/:path*" },
-    { "source": "/health", "destination": "/api/health" },
-    { "source": "/(.*)", "destination": "/public/index.html" }
+  "version": 2,
+  "routes": [
+    { "handle": "filesystem" },
+    { "src": "/(.*)", "dest": "/public/index.html" }
   ]
 }
