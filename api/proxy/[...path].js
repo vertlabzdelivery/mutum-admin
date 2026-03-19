@@ -28,7 +28,14 @@ module.exports = async (req, res) => {
 
   try {
     const targetBaseUrl = (req.headers['x-target-base-url'] || DEFAULT_API_BASE_URL).replace(/\/+$/, '');
-    const pathParts = Array.isArray(req.query.path) ? req.query.path : [req.query.path].filter(Boolean);
+    let pathParts = Array.isArray(req.query.path) ? req.query.path : [req.query.path].filter(Boolean);
+    if (!pathParts.length) {
+      const rawPath = (req.url || '').split('?')[0];
+      const prefix = '/api/proxy/';
+      if (rawPath.startsWith(prefix)) {
+        pathParts = rawPath.slice(prefix.length).split('/').filter(Boolean);
+      }
+    }
     const query = new URLSearchParams();
     for (const [key, value] of Object.entries(req.query || {})) {
       if (key === 'path') continue;
