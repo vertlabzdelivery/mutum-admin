@@ -18,6 +18,45 @@ const state = {
   billingReport: null,
 };
 
+const ui = { requestCount: 0 };
+
+
+function setBooting(isBooting, message = 'Preparando painel...') {
+  document.body.classList.toggle('app-booting', isBooting);
+  document.getElementById('bootSplash')?.classList.toggle('hidden', !isBooting);
+  const label = document.getElementById('bootSplashText');
+  if (label) label.textContent = message;
+}
+
+function setGlobalLoading(isLoading, message = 'Aguarde um instante...') {
+  document.getElementById('globalLoader')?.classList.toggle('hidden', !isLoading);
+  const label = document.getElementById('globalLoaderText');
+  if (label) label.textContent = message;
+}
+
+function setButtonLoading(button, isLoading, text = 'Carregando...') {
+  if (!button) return;
+  if (isLoading) {
+    if (!button.dataset.originalHtml) button.dataset.originalHtml = button.innerHTML;
+    button.classList.add('is-loading');
+    button.disabled = true;
+    button.innerHTML = `<span class="inline-spinner" aria-hidden="true"></span>${escapeHtml(text)}`;
+    return;
+  }
+  if (button.dataset.originalHtml) button.innerHTML = button.dataset.originalHtml;
+  button.classList.remove('is-loading');
+  button.disabled = false;
+}
+
+async function runWithButtonLoading(button, text, task) {
+  setButtonLoading(button, true, text);
+  try {
+    return await task();
+  } finally {
+    setButtonLoading(button, false);
+  }
+}
+
 function readJson(key, fallback) {
   try {
     const value = localStorage.getItem(key);
@@ -64,14 +103,25 @@ async function apiRequest(method, path, body, auth = false) {
       : '/api/proxy';
 
   const proxyUrl = `${proxyBase}?path=${encodeURIComponent(path)}`;
-  const response = await fetch(proxyUrl, {
-    method,
-    headers: {
-      ...headers,
-      'x-target-base-url': API_BASE_URL,
-    },
-    body: body == null ? undefined : JSON.stringify(body),
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 20000);
+  let response;
+  try {
+    response = await fetch(proxyUrl, {
+      method,
+      headers: {
+        ...headers,
+        'x-target-base-url': API_BASE_URL,
+      },
+      body: body == null ? undefined : JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') throw new Error('A requisição demorou demais para responder.');
+    throw error;
+  }
+  clearTimeout(timeoutId);
 
   const text = await response.text();
   let data;
@@ -103,12 +153,16 @@ function clearAuth() {
   localStorage.removeItem(STORAGE_KEYS.user);
 }
 
-function render() {
+async function render() {
   const app = document.getElementById('app');
   app.innerHTML = '';
   const template = document.getElementById(state.currentUser ? 'dashboardTemplate' : 'loginTemplate');
   app.appendChild(template.content.cloneNode(true));
-  if (state.currentUser) initDashboard(); else initLogin();
+  if (state.currentUser) {
+    await initDashboard();
+  } else {
+    initLogin();
+  }
 }
 
 function initLogin() {
@@ -118,24 +172,26 @@ function initLogin() {
     const errorEl = document.getElementById('loginError');
     errorEl.classList.add('hidden');
     const body = Object.fromEntries(new FormData(form).entries());
-    try {
-      const auth = await apiRequest('POST', '/auth/login', body);
-      persistAuth(auth);
-      const me = await apiRequest('GET', '/auth/me', null, true);
-      const resolvedRole = extractResolvedRole(me, auth, state.currentUser);
-      if (resolvedRole !== 'ADMIN') {
-        clearAuth();
-        errorEl.textContent = 'Somente contas ADMIN podem entrar neste painel.';
+    await runWithButtonLoading(event.submitter || form.querySelector('button[type="submit"]'), 'Entrando...', async () => {
+      try {
+        const auth = await apiRequest('POST', '/auth/login', body);
+        persistAuth(auth);
+        const me = await apiRequest('GET', '/auth/me', null, true);
+        const resolvedRole = extractResolvedRole(me, auth, state.currentUser);
+        if (resolvedRole !== 'ADMIN') {
+          clearAuth();
+          errorEl.textContent = 'Somente contas ADMIN podem entrar neste painel.';
+          errorEl.classList.remove('hidden');
+          return;
+        }
+        state.currentUser = { ...(typeof auth === 'object' ? auth : {}), ...(auth?.user || {}), ...(typeof me === 'object' ? me : {}), ...(me?.user || {}), role: resolvedRole };
+        saveJson(STORAGE_KEYS.user, state.currentUser);
+        await render();
+      } catch (error) {
+        errorEl.textContent = error.message || 'Não foi possível entrar.';
         errorEl.classList.remove('hidden');
-        return;
       }
-      state.currentUser = { ...(typeof auth === 'object' ? auth : {}), ...(auth?.user || {}), ...(typeof me === 'object' ? me : {}), ...(me?.user || {}), role: resolvedRole };
-      saveJson(STORAGE_KEYS.user, state.currentUser);
-      render();
-    } catch (error) {
-      errorEl.textContent = error.message || 'Não foi possível entrar.';
-      errorEl.classList.remove('hidden');
-    }
+    });
   });
 }
 
@@ -158,7 +214,14 @@ async function initDashboard() {
   renderCreatedAccounts();
   renderSummary();
   renderBillingReport(null);
-  await loadInitialData();
+  setStatus('Carregando estados, restaurantes e faturamento...');
+  setGlobalLoading(true, 'Carregando dados do painel administrativo...');
+  try {
+    await loadInitialData();
+    setStatus('Pronto.');
+  } finally {
+    setGlobalLoading(false);
+  }
 }
 
 function bindForms() {
@@ -210,20 +273,22 @@ async function handleRestaurantAccountCreate(event) {
   const form = event.currentTarget;
   const body = Object.fromEntries(new FormData(form).entries());
   if (!body.cityId) delete body.cityId;
-  try {
-    const result = await apiRequest('POST', '/auth/register-restaurant', body);
-    const entry = { createdAt: new Date().toISOString(), user: result.user, restaurant: result.restaurant };
-    state.createdAccounts.unshift(entry);
-    state.createdAccounts = state.createdAccounts.slice(0, 12);
-    saveJson(STORAGE_KEYS.created, state.createdAccounts);
-    form.reset();
-    setStatus('Conta RESTAURANT criada com sucesso.');
-    renderCreatedAccounts();
-    renderSummary();
-    await loadRestaurants();
-  } catch (error) {
-    setStatus(error.message || 'Erro ao criar conta restaurante.', true);
-  }
+  await runWithButtonLoading(event.submitter || form.querySelector('button[type="submit"]'), 'Criando conta...', async () => {
+    try {
+      const result = await apiRequest('POST', '/auth/register-restaurant', body);
+      const entry = { createdAt: new Date().toISOString(), user: result.user, restaurant: result.restaurant };
+      state.createdAccounts.unshift(entry);
+      state.createdAccounts = state.createdAccounts.slice(0, 12);
+      saveJson(STORAGE_KEYS.created, state.createdAccounts);
+      form.reset();
+      setStatus('Conta RESTAURANT criada com sucesso.');
+      renderCreatedAccounts();
+      renderSummary();
+      await loadRestaurants();
+    } catch (error) {
+      setStatus(error.message || 'Erro ao criar conta restaurante.', true);
+    }
+  });
 }
 
 async function handleRestaurantCreate(event) {
@@ -235,15 +300,17 @@ async function handleRestaurantCreate(event) {
   if (!body.logoUrl) delete body.logoUrl;
   if (!body.phone) delete body.phone;
   if (!body.minOrder) delete body.minOrder; else body.minOrder = Number(body.minOrder);
-  try {
-    const result = await apiRequest('POST', '/restaurants', body, true);
-    setStatus(`Restaurante ${result.name || ''} criado com sucesso.`);
-    form.reset();
-    renderSummary(result);
-    await loadRestaurants();
-  } catch (error) {
-    setStatus(error.message || 'Erro ao criar restaurante.', true);
-  }
+  await runWithButtonLoading(event.submitter || form.querySelector('button[type="submit"]'), 'Criando restaurante...', async () => {
+    try {
+      const result = await apiRequest('POST', '/restaurants', body, true);
+      setStatus(`Restaurante ${result.name || ''} criado com sucesso.`);
+      form.reset();
+      renderSummary(result);
+      await loadRestaurants();
+    } catch (error) {
+      setStatus(error.message || 'Erro ao criar restaurante.', true);
+    }
+  });
 }
 
 async function handleStateCreate(event) {
@@ -251,14 +318,16 @@ async function handleStateCreate(event) {
   const form = event.currentTarget;
   const body = Object.fromEntries(new FormData(form).entries());
   body.code = String(body.code || '').toUpperCase();
-  try {
-    await apiRequest('POST', '/locations/states', body, true);
-    form.reset();
-    setStatus('Estado criado com sucesso.');
-    await loadStates();
-  } catch (error) {
-    setStatus(error.message || 'Erro ao criar estado.', true);
-  }
+  await runWithButtonLoading(event.submitter || form.querySelector('button[type="submit"]'), 'Adicionando...', async () => {
+    try {
+      await apiRequest('POST', '/locations/states', body, true);
+      form.reset();
+      setStatus('Estado criado com sucesso.');
+      await loadStates();
+    } catch (error) {
+      setStatus(error.message || 'Erro ao criar estado.', true);
+    }
+  });
 }
 
 async function handleCityCreate(event) {
@@ -532,7 +601,7 @@ function renderBillingReport(report) {
   actionsEl.classList.remove('hidden');
 }
 
-async function saveBillingCycle() {
+async function saveBillingCycle(event) {
   if (!state.billingReport) {
     setStatus('Gere o relatório antes de salvar o fechamento.', true);
     return;
@@ -540,21 +609,23 @@ async function saveBillingCycle() {
 
   const dueDate = document.getElementById('billingDueDate').value;
   const notes = document.getElementById('billingNotes').value;
-  try {
-    setStatus('Salvando fechamento no backend...');
-    const payload = {
-      restaurantId: state.billingReport.restaurant.id,
-      startDate: document.getElementById('billingStartDate').value,
-      endDate: document.getElementById('billingEndDate').value,
-      commissionPercent: Number(document.getElementById('billingCommissionPercent').value || 7),
-      dueDate: dueDate || undefined,
-      notes: notes || undefined,
-    };
-    const cycle = await apiRequest('POST', '/billing/cycles/save', payload, true);
-    setStatus(`Fechamento salvo com sucesso. Ciclo ${cycle.id.slice(0, 8)} criado/atualizado.`);
-  } catch (error) {
-    setStatus(error.message || 'Erro ao salvar fechamento.', true);
-  }
+  await runWithButtonLoading(event?.currentTarget || document.getElementById('billingSaveCycleBtn'), 'Salvando fechamento...', async () => {
+    try {
+      setStatus('Salvando fechamento no backend...');
+      const payload = {
+        restaurantId: state.billingReport.restaurant.id,
+        startDate: document.getElementById('billingStartDate').value,
+        endDate: document.getElementById('billingEndDate').value,
+        commissionPercent: Number(document.getElementById('billingCommissionPercent').value || 7),
+        dueDate: dueDate || undefined,
+        notes: notes || undefined,
+      };
+      const cycle = await apiRequest('POST', '/billing/cycles/save', payload, true);
+      setStatus(`Fechamento salvo com sucesso. Ciclo ${cycle.id.slice(0, 8)} criado/atualizado.`);
+    } catch (error) {
+      setStatus(error.message || 'Erro ao salvar fechamento.', true);
+    }
+  });
 }
 
 function exportBillingCsv() {
@@ -745,16 +816,23 @@ function escapeAttribute(value) {
 }
 
 (async function boot() {
+  setBooting(true, 'Validando sua sessão...');
   if (state.currentUser && state.accessToken) {
     try {
       const me = await apiRequest('GET', '/auth/me', null, true);
-      const resolvedRole = me?.role || me?.user?.role || state.currentUser?.role;
+      const resolvedRole = extractResolvedRole(me, state.currentUser);
       if (resolvedRole !== 'ADMIN') throw new Error('Somente ADMIN pode usar este painel.');
-      state.currentUser = { ...(typeof auth === 'object' ? auth : {}), ...(auth?.user || {}), ...(typeof me === 'object' ? me : {}), ...(me?.user || {}), role: resolvedRole };
+      state.currentUser = {
+        ...(typeof state.currentUser === 'object' ? state.currentUser : {}),
+        ...(typeof me === 'object' ? me : {}),
+        ...(me?.user || {}),
+        role: resolvedRole,
+      };
       saveJson(STORAGE_KEYS.user, state.currentUser);
     } catch {
       clearAuth();
     }
   }
-  render();
+  await render();
+  setBooting(false);
 })();

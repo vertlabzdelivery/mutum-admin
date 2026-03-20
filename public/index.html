@@ -6,7 +6,21 @@
     <title>Mutum Delivery • Painel Admin</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
-  <body>
+  <body class="app-booting">
+    <div id="bootSplash" class="boot-splash">
+      <div class="boot-card">
+        <div class="boot-spinner" aria-hidden="true"></div>
+        <strong>Carregando o painel admin</strong>
+        <span id="bootSplashText">Validando sua sessão e preparando o dashboard.</span>
+      </div>
+    </div>
+    <div id="globalLoader" class="global-loader hidden" aria-live="polite">
+      <div class="global-loader-card">
+        <div class="boot-spinner" aria-hidden="true"></div>
+        <strong>Processando</strong>
+        <span id="globalLoaderText">Aguarde um instante...</span>
+      </div>
+    </div>
     <div id="app"></div>
 
     <template id="loginTemplate">

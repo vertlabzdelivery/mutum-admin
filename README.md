@@ -1,21 +1,18 @@
-# Painel Admin
+# Mutum Delivery • Painel admin
 
-## Local
+Painel administrativo enxuto para criar contas de restaurante, cadastrar restaurantes, gerenciar estados/cidades/bairros e gerar fechamentos de faturamento.
 
-```bash
-npm start
-```
+## Melhorias aplicadas
+- correção da validação de sessão no boot
+- tela de boot para evitar aparecer a tela errada por alguns instantes
+- loading visual em login e formulários
+- timeout de requisição para não travar silenciosamente
+- README reorganizado e apresentação melhor do projeto
 
-Crie um arquivo `.env` se quiser usar outra API:
+## Rodando localmente
+1. Ajuste a API em `.env`:
+   `API_BASE_URL=http://localhost:3001`
+2. Inicie:
+   `npm start`
 
-```env
-API_BASE_URL=http://localhost:3001
-```
-
-## Vercel
-
-Variável de ambiente:
-
-```env
-API_BASE_URL=https://mutum-delivery-api.vercel.app
-```
+Se estiver em produção/serverless, o painel usa `/api/proxy` automaticamente.
