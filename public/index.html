@@ -52,7 +52,7 @@
           <section class="hero-card">
             <div>
               <h2>Gestão rápida</h2>
-              <p>Crie contas de restaurante, cadastre restaurante por ownerId e organize estados, cidades e bairros.</p>
+              <p>Crie contas de restaurante, cadastre restaurantes, organize localidades e feche o faturamento por período.</p>
             </div>
             <div class="hero-status" id="statusBox">Pronto.</div>
           </section>
@@ -229,6 +229,72 @@
               <p>Os cadastros recentes ficam acessíveis aqui para copiar IDs com facilidade.</p>
             </div>
             <div id="summaryCards" class="summary-grid"></div>
+          </section>
+
+          <section class="panel-card">
+            <div class="section-title">
+              <h3>Faturamento e fechamento</h3>
+              <p>Selecione o período, desconte cancelados automaticamente, aplique a taxa de 7% e exporte em planilha CSV ou PDF.</p>
+            </div>
+            <form id="billingFilterForm" class="stack-form">
+              <div class="grid two-cols inner-grid billing-grid">
+                <div>
+                  <label>Restaurante</label>
+                  <select id="billingRestaurantId" required></select>
+                </div>
+                <div>
+                  <label>Taxa (%)</label>
+                  <input id="billingCommissionPercent" type="number" min="0" max="100" step="0.01" value="7" />
+                </div>
+                <div>
+                  <label>Data inicial</label>
+                  <input id="billingStartDate" type="date" required />
+                </div>
+                <div>
+                  <label>Data final</label>
+                  <input id="billingEndDate" type="date" required />
+                </div>
+                <div>
+                  <label>Vencimento sugerido</label>
+                  <input id="billingDueDate" type="date" />
+                </div>
+                <div>
+                  <label>Observações do fechamento</label>
+                  <input id="billingNotes" placeholder="Ex.: fechamento março, pagar via Pix" />
+                </div>
+              </div>
+              <div class="row-wrap">
+                <button type="submit" class="btn-primary">Gerar fechamento</button>
+              </div>
+            </form>
+
+            <div id="billingReportMeta" class="billing-meta"></div>
+            <div id="billingSummaryCards" class="summary-grid billing-summary-grid"></div>
+
+            <div id="billingReportActions" class="row-wrap hidden report-actions">
+              <button id="billingExportCsvBtn" type="button" class="btn-soft">Baixar planilha CSV</button>
+              <button id="billingExportPdfBtn" type="button" class="btn-soft">Gerar PDF / imprimir</button>
+              <button id="billingSaveCycleBtn" type="button" class="btn-primary">Salvar fechamento no backend</button>
+            </div>
+
+            <div class="report-table-wrap">
+              <table class="report-table">
+                <thead>
+                  <tr>
+                    <th>Linha</th>
+                    <th>Pedido</th>
+                    <th>Cliente</th>
+                    <th>Status</th>
+                    <th>Pagamento</th>
+                    <th>Total</th>
+                    <th>Cancelado</th>
+                    <th>Base 7%</th>
+                    <th>Comissão</th>
+                  </tr>
+                </thead>
+                <tbody id="billingReportBody"></tbody>
+              </table>
+            </div>
           </section>
         </main>
       </div>

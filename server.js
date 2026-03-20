@@ -53,8 +53,18 @@ function handleProxy(req, res) {
   readBody(req)
     .then((body) => {
       const targetBaseUrl = normalizeApiBaseUrl(req.headers['x-target-base-url']);
-      const targetPath = req.url.replace(/^\/proxy/, '') || '/';
-      const targetUrl = new URL(targetBaseUrl + targetPath);
+      const requestUrl = new URL(req.url, `http://localhost:${PORT}`);
+
+      let targetPath = requestUrl.searchParams.get('path') || '';
+      if (!targetPath) {
+        const normalizedPathname = requestUrl.pathname.replace(/^\/api\/proxy/, '/proxy');
+        targetPath = normalizedPathname.replace(/^\/proxy/, '') || '/';
+        if (requestUrl.search) targetPath += requestUrl.search;
+      }
+
+      if (!targetPath.startsWith('/')) targetPath = `/${targetPath}`;
+
+      const targetUrl = new URL(targetPath, `${targetBaseUrl}/`);
       const transport = targetUrl.protocol === 'https:' ? https : http;
       const headers = { ...req.headers };
       delete headers.host;
@@ -72,7 +82,7 @@ function handleProxy(req, res) {
       });
 
       proxyReq.on('error', (error) => {
-        sendJson(res, 502, { message: 'Falha ao conectar com a API alvo.', targetBaseUrl, error: error.message });
+        sendJson(res, 502, { message: 'Falha ao conectar com a API alvo.', targetBaseUrl, targetPath, error: error.message });
       });
       if (body && !['GET', 'HEAD'].includes(req.method || 'GET')) proxyReq.write(body);
       proxyReq.end();
@@ -112,7 +122,7 @@ function requestHandler(req, res) {
   if (req.url === '/health') {
     return sendJson(res, 200, { ok: true, panel: 'delivery-admin-panel', defaultApiBaseUrl: DEFAULT_API_BASE_URL });
   }
-  if (req.url.startsWith('/proxy/')) return handleProxy(req, res);
+  if (req.url.startsWith('/proxy/') || req.url.startsWith('/proxy?') || req.url.startsWith('/api/proxy/') || req.url.startsWith('/api/proxy?')) return handleProxy(req, res);
 
   const parsedUrl = new URL(req.url, `http://localhost:${PORT}`);
   let pathname = decodeURIComponent(parsedUrl.pathname);
