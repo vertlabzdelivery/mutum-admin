@@ -13,6 +13,7 @@ const state = {
   createdAccounts: readJson(STORAGE_KEYS.created, []),
   states: [],
   restaurants: [],
+  storeCategories: [],
   citiesByState: new Map(),
   neighborhoodsByCity: new Map(),
   billingReport: null,
@@ -235,6 +236,11 @@ function bindForms() {
   document.getElementById('billingExportPdfBtn').addEventListener('click', exportBillingPdf);
   document.getElementById('billingSaveCycleBtn').addEventListener('click', saveBillingCycle);
 
+  document.getElementById('storeCategoryForm').addEventListener('submit', handleStoreCategoryCreate);
+  document.getElementById('uploadStoreCategoryIconBtn').addEventListener('click', () => document.getElementById('storeCategoryIconFile').click());
+  document.getElementById('storeCategoryIconFile').addEventListener('change', handleStoreCategoryIconUpload);
+  document.getElementById('storeCategoriesList').addEventListener('click', handleStoreCategoryListActions);
+
   document.getElementById('restaurantAccountState').addEventListener('change', (e) => populateCities('restaurantAccountCity', e.target.value));
   document.getElementById('restaurantState').addEventListener('change', (e) => populateCities('restaurantCity', e.target.value));
   document.getElementById('cityStateSelect').addEventListener('change', (e) => renderCitiesList(e.target.value));
@@ -246,7 +252,7 @@ function bindForms() {
 }
 
 async function loadInitialData() {
-  await Promise.all([loadStates(), loadRestaurants()]);
+  await Promise.all([loadStates(), loadRestaurants(), loadStoreCategories()]);
   applyBillingDefaults();
 }
 
@@ -738,6 +744,111 @@ function exportBillingPdf() {
   win.print();
   setStatus('Janela de impressão aberta. Salve como PDF no navegador.');
 }
+
+// ─── Store Categories ────────────────────────────────────────────────────────
+
+async function loadStoreCategories() {
+  try {
+    state.storeCategories = await apiRequest('GET', '/store-categories', null, true);
+    renderStoreCategoriesList();
+  } catch (error) {
+    state.storeCategories = [];
+    setStatus(error.message || 'Erro ao carregar categorias de loja.', true);
+  }
+}
+
+async function handleStoreCategoryCreate(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const name = document.getElementById('storeCategoryName').value.trim();
+  const iconUrl = document.getElementById('storeCategoryIconUrl').value.trim();
+  const sortOrder = Number(document.getElementById('storeCategorySortOrder').value || 0);
+  if (!name) { setStatus('Informe o nome da categoria.', true); return; }
+  await runWithButtonLoading(event.submitter || form.querySelector('button[type="submit"]'), 'Criando...', async () => {
+    try {
+      await apiRequest('POST', '/store-categories', { name, iconUrl: iconUrl || undefined, sortOrder }, true);
+      form.reset();
+      document.getElementById('storeCategoryIconPreviewWrap').classList.add('hidden');
+      setStatus(`Categoria "${name}" criada com sucesso.`);
+      await loadStoreCategories();
+    } catch (error) {
+      setStatus(error.message || 'Erro ao criar categoria.', true);
+    }
+  });
+}
+
+async function handleStoreCategoryIconUpload(event) {
+  const file = event.target?.files?.[0];
+  event.target.value = '';
+  if (!file) return;
+  const btn = document.getElementById('uploadStoreCategoryIconBtn');
+  await runWithButtonLoading(btn, 'Enviando ícone...', async () => {
+    try {
+      const proxyBase = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/proxy' : '/api/proxy';
+      const formData = new FormData();
+      formData.append('file', file);
+      const response = await fetch(`${proxyBase}?path=${encodeURIComponent('/uploads/store-category-icon')}`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${state.accessToken}`, 'x-target-base-url': window.__API_BASE_URL__ || '' },
+        body: formData,
+      });
+      const text = await response.text();
+      let data; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+      if (!response.ok) throw new Error(data?.message || data?.data?.message || `Erro ${response.status}`);
+      const url = (data?.data || data)?.url || '';
+      document.getElementById('storeCategoryIconUrl').value = url;
+      const previewWrap = document.getElementById('storeCategoryIconPreviewWrap');
+      const preview = document.getElementById('storeCategoryIconPreview');
+      if (url) { preview.src = url; previewWrap.classList.remove('hidden'); }
+      setStatus('Ícone enviado com sucesso.');
+    } catch (error) {
+      setStatus(error.message || 'Erro ao enviar ícone.', true);
+    }
+  });
+}
+
+async function handleStoreCategoryListActions(event) {
+  const deleteBtn = event.target.closest('[data-delete-category]');
+  if (deleteBtn) {
+    const id = deleteBtn.dataset.deleteCategory;
+    const name = deleteBtn.dataset.categoryName || '';
+    if (!confirm(`Remover a categoria "${name}"? Os restaurantes que a usam perderão o vínculo.`)) return;
+    await runWithButtonLoading(deleteBtn, 'Removendo...', async () => {
+      try {
+        await apiRequest('DELETE', `/store-categories/${id}`, null, true);
+        setStatus(`Categoria "${name}" removida.`);
+        await loadStoreCategories();
+      } catch (error) {
+        setStatus(error.message || 'Erro ao remover categoria.', true);
+      }
+    });
+  }
+}
+
+function renderStoreCategoriesList() {
+  const el = document.getElementById('storeCategoriesList');
+  if (!el) return;
+  const list = state.storeCategories || [];
+  if (!list.length) {
+    el.innerHTML = '<div class="empty-state">Nenhuma categoria criada ainda.</div>';
+    return;
+  }
+  el.innerHTML = list
+    .sort((a, b) => (a.sortOrder - b.sortOrder) || a.name.localeCompare(b.name))
+    .map((cat) => `
+      <div class="list-item" style="gap:12px;align-items:center;">
+        ${cat.iconUrl ? `<img src="${escapeAttribute(cat.iconUrl)}" alt="${escapeAttribute(cat.name)}" style="width:36px;height:36px;border-radius:8px;object-fit:cover;flex-shrink:0;" />` : '<div style="width:36px;height:36px;border-radius:8px;background:#f3e8e5;flex-shrink:0;"></div>'}
+        <div style="flex:1;">
+          <strong>${escapeHtml(cat.name)}</strong>
+          <span class="tag" style="margin-left:8px;">Ordem ${cat.sortOrder}</span>
+          ${cat.isActive ? '' : '<span class="tag" style="margin-left:4px;background:#fff0ef;color:#b31413;">Inativo</span>'}
+        </div>
+        <button class="btn-link" type="button" data-delete-category="${escapeAttribute(cat.id)}" data-category-name="${escapeAttribute(cat.name)}">Remover</button>
+      </div>`)
+    .join('');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 function formatMoney(value) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value || 0));

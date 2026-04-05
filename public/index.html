@@ -247,6 +247,41 @@
 
           <section class="panel-card">
             <div class="section-title">
+              <h3>Categorias de loja</h3>
+              <p>Crie as categorias que os restaurantes podem selecionar (ex.: Lanches, Açaí, Pizzas). Suba o ícone e defina a ordem de exibição.</p>
+            </div>
+            <form id="storeCategoryForm" class="stack-form">
+              <div class="grid two-cols inner-grid">
+                <div>
+                  <label>Nome da categoria</label>
+                  <input id="storeCategoryName" name="name" placeholder="Ex.: Lanches" required />
+                </div>
+                <div>
+                  <label>Ordem de exibição</label>
+                  <input id="storeCategorySortOrder" name="sortOrder" type="number" min="0" value="0" />
+                </div>
+                <div class="full">
+                  <label>Ícone (URL) — preenchido automaticamente após upload</label>
+                  <input id="storeCategoryIconUrl" name="iconUrl" placeholder="https://..." />
+                </div>
+                <div class="full">
+                  <label>Upload do ícone (JPG / PNG / WEBP, máx. 300 KB)</label>
+                  <div class="row-wrap">
+                    <input id="storeCategoryIconFile" type="file" accept="image/*" class="hidden" />
+                    <button type="button" id="uploadStoreCategoryIconBtn" class="btn-soft">Enviar ícone</button>
+                    <div id="storeCategoryIconPreviewWrap" class="hidden">
+                      <img id="storeCategoryIconPreview" alt="Pré-visualização" style="width:48px;height:48px;border-radius:8px;object-fit:cover;" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <button type="submit" class="btn-primary">Criar categoria</button>
+            </form>
+            <div id="storeCategoriesList" class="simple-list" style="margin-top:16px;"></div>
+          </section>
+
+          <section class="panel-card">
+            <div class="section-title">
               <h3>Faturamento e fechamento</h3>
               <p>Selecione o período, desconte cancelados automaticamente, aplique a taxa de 7% e exporte em planilha CSV ou PDF.</p>
             </div>
