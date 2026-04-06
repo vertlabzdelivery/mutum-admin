@@ -5,15 +5,17 @@ const DEFAULT_API_BASE_URL = (process.env.API_BASE_URL || 'http://localhost:3001
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
-    let body = '';
+    const chunks = [];
+    let totalBytes = 0;
     req.on('data', (chunk) => {
-      body += chunk;
-      if (body.length > 10 * 1024 * 1024) {
+      chunks.push(chunk);
+      totalBytes += chunk.length;
+      if (totalBytes > 10 * 1024 * 1024) {
         reject(new Error('Payload muito grande'));
         req.destroy();
       }
     });
-    req.on('end', () => resolve(body));
+    req.on('end', () => resolve(Buffer.concat(chunks)));
     req.on('error', reject);
   });
 }
@@ -70,7 +72,9 @@ module.exports = async (req, res) => {
       res.end(JSON.stringify({ message: 'Falha ao conectar com a API alvo.', targetBaseUrl, error: error.message }));
     });
 
-    if (body && !['GET', 'HEAD'].includes(req.method || 'GET')) proxyReq.write(body);
+    if (body.length > 0 && !['GET', 'HEAD'].includes(req.method || 'GET')) {
+      proxyReq.write(body);
+    }
     proxyReq.end();
   } catch (error) {
     res.statusCode = 500;

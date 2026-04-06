@@ -32,15 +32,17 @@ function sendJson(res, statusCode, data) {
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
-    let body = '';
+    const chunks = [];
+    let totalBytes = 0;
     req.on('data', (chunk) => {
-      body += chunk;
-      if (body.length > 10 * 1024 * 1024) {
+      chunks.push(chunk);
+      totalBytes += chunk.length;
+      if (totalBytes > 10 * 1024 * 1024) {
         reject(new Error('Payload muito grande'));
         req.destroy();
       }
     });
-    req.on('end', () => resolve(body));
+    req.on('end', () => resolve(Buffer.concat(chunks)));
     req.on('error', reject);
   });
 }
@@ -84,7 +86,9 @@ function handleProxy(req, res) {
       proxyReq.on('error', (error) => {
         sendJson(res, 502, { message: 'Falha ao conectar com a API alvo.', targetBaseUrl, targetPath, error: error.message });
       });
-      if (body && !['GET', 'HEAD'].includes(req.method || 'GET')) proxyReq.write(body);
+      if (body.length > 0 && !['GET', 'HEAD'].includes(req.method || 'GET')) {
+        proxyReq.write(body);
+      }
       proxyReq.end();
     })
     .catch((error) => sendJson(res, 500, { message: 'Erro no proxy.', error: error.message }));
