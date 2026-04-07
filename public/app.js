@@ -11,16 +11,15 @@ const state = {
   refreshToken: localStorage.getItem(STORAGE_KEYS.refresh) || '',
   currentUser: readJson(STORAGE_KEYS.user, null),
   createdAccounts: readJson(STORAGE_KEYS.created, []),
+  activePage: 'inicio',
   states: [],
   restaurants: [],
   storeCategories: [],
+  promotionalCoupons: [],
   citiesByState: new Map(),
   neighborhoodsByCity: new Map(),
-  billingReport: null,
+  appMetrics: null,
 };
-
-const ui = { requestCount: 0 };
-
 
 function setBooting(isBooting, message = 'Preparando painel...') {
   document.body.classList.toggle('app-booting', isBooting);
@@ -70,6 +69,7 @@ function readJson(key, fallback) {
 function saveJson(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
 }
+
 function normalizeRole(value) {
   return String(value || '').trim().toUpperCase();
 }
@@ -83,14 +83,14 @@ function extractResolvedRole(...sources) {
   return '';
 }
 
-
-function setStatus(message, isError = false) {
-  const box = document.getElementById('statusBox');
-  if (!box) return;
-  box.textContent = message;
-  box.style.color = isError ? '#b31413' : '#2e2b28';
-  box.style.borderColor = isError ? 'rgba(221,28,26,.35)' : '#f2d998';
-  box.style.background = isError ? '#fff0ef' : '#fff6dc';
+function setStatus(message, isError = false, tone = isError ? 'danger' : 'success') {
+  const statusText = document.getElementById('statusText');
+  const statusBadge = document.getElementById('statusBadge');
+  if (statusText) statusText.textContent = message;
+  if (statusBadge) {
+    statusBadge.textContent = isError ? 'Atenção' : tone === 'loading' ? 'Sincronizando' : 'Pronto';
+    statusBadge.className = `status-badge${isError ? ' danger' : tone === 'success' ? ' success' : ''}`;
+  }
 }
 
 async function apiRequest(method, path, body, auth = false) {
@@ -98,8 +98,7 @@ async function apiRequest(method, path, body, auth = false) {
   if (auth && state.accessToken) headers.Authorization = `Bearer ${state.accessToken}`;
 
   const proxyBase =
-    window.location.hostname === 'localhost' ||
-    window.location.hostname === '127.0.0.1'
+    window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
       ? '/proxy'
       : '/api/proxy';
 
@@ -154,38 +153,40 @@ function clearAuth() {
   localStorage.removeItem(STORAGE_KEYS.user);
 }
 
+function cloneTemplate(id) {
+  const template = document.getElementById(id);
+  return template.content.cloneNode(true);
+}
+
 async function render() {
   const app = document.getElementById('app');
   app.innerHTML = '';
-  const template = document.getElementById(state.currentUser ? 'dashboardTemplate' : 'loginTemplate');
-  app.appendChild(template.content.cloneNode(true));
-  if (state.currentUser) {
-    await initDashboard();
-  } else {
+
+  if (!state.currentUser || !state.accessToken) {
+    app.appendChild(cloneTemplate('loginTemplate'));
     initLogin();
+    return;
   }
+
+  app.appendChild(cloneTemplate('dashboardTemplate'));
+  await initDashboard();
 }
 
 function initLogin() {
   const form = document.getElementById('loginForm');
+  const errorEl = document.getElementById('loginError');
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
-    const errorEl = document.getElementById('loginError');
     errorEl.classList.add('hidden');
-    const body = Object.fromEntries(new FormData(form).entries());
-    await runWithButtonLoading(event.submitter || form.querySelector('button[type="submit"]'), 'Entrando...', async () => {
+    await runWithButtonLoading(event.submitter, 'Entrando...', async () => {
       try {
+        const body = Object.fromEntries(new FormData(form).entries());
         const auth = await apiRequest('POST', '/auth/login', body);
-        persistAuth(auth);
         const me = await apiRequest('GET', '/auth/me', null, true);
-        const resolvedRole = extractResolvedRole(me, auth, state.currentUser);
-        if (resolvedRole !== 'ADMIN') {
-          clearAuth();
-          errorEl.textContent = 'Somente contas ADMIN podem entrar neste painel.';
-          errorEl.classList.remove('hidden');
-          return;
-        }
-        state.currentUser = { ...(typeof auth === 'object' ? auth : {}), ...(auth?.user || {}), ...(typeof me === 'object' ? me : {}), ...(me?.user || {}), role: resolvedRole };
+        const resolvedRole = extractResolvedRole(me, auth);
+        if (resolvedRole !== 'ADMIN') throw new Error('Somente ADMIN pode usar este painel.');
+        persistAuth(auth);
+        state.currentUser = { ...(auth.user || {}), ...(typeof me === 'object' ? me : {}), role: resolvedRole };
         saveJson(STORAGE_KEYS.user, state.currentUser);
         await render();
       } catch (error) {
@@ -197,81 +198,90 @@ function initLogin() {
 }
 
 async function initDashboard() {
-  document.getElementById('adminBadge').textContent = `${state.currentUser.name} • ADMIN`;
+  document.getElementById('adminBadge').textContent = `${state.currentUser.name || 'Admin'} • ADMIN`;
   document.getElementById('logoutBtn').addEventListener('click', () => { clearAuth(); render(); });
   document.getElementById('clearCreatedUsers').addEventListener('click', () => {
     state.createdAccounts = [];
     saveJson(STORAGE_KEYS.created, state.createdAccounts);
     renderCreatedAccounts();
-    renderSummary();
-  });
-  document.getElementById('useLastOwnerBtn').addEventListener('click', () => {
-    const last = state.createdAccounts[0];
-    if (!last?.user?.id) return;
-    document.getElementById('restaurantOwnerId').value = last.user.id;
   });
 
+  bindNavigation();
   bindForms();
+  bindToolbar();
   renderCreatedAccounts();
-  renderSummary();
-  renderBillingReport(null);
-  setStatus('Carregando estados, restaurantes e faturamento...');
+  setStatus('Carregando estados, restaurantes, categorias e cupons...', false, 'loading');
   setGlobalLoading(true, 'Carregando dados do painel administrativo...');
   try {
     await loadInitialData();
-    setStatus('Pronto.');
+    setStatus('Painel sincronizado.');
+  } catch (error) {
+    setStatus(error.message || 'Erro ao carregar o painel.', true);
   } finally {
     setGlobalLoading(false);
   }
 }
 
+function bindNavigation() {
+  document.querySelectorAll('[data-page]').forEach((button) => {
+    button.addEventListener('click', () => {
+      setActivePage(button.dataset.page);
+    });
+  });
+  setActivePage(state.activePage);
+}
+
+function setActivePage(page) {
+  state.activePage = page;
+  document.querySelectorAll('[data-page]').forEach((button) => {
+    button.classList.toggle('is-active', button.dataset.page === page);
+  });
+  document.querySelectorAll('[data-page-panel]').forEach((panel) => {
+    panel.classList.toggle('hidden', panel.dataset.pagePanel !== page);
+  });
+  if (page === 'status' && !state.appMetrics) {
+    refreshStatusMetrics();
+  }
+}
+
 function bindForms() {
-  document.getElementById('restaurantAccountForm').addEventListener('submit', handleRestaurantAccountCreate);
-  document.getElementById('restaurantForm').addEventListener('submit', handleRestaurantCreate);
-  document.getElementById('stateForm').addEventListener('submit', handleStateCreate);
-  document.getElementById('cityForm').addEventListener('submit', handleCityCreate);
-  document.getElementById('neighborhoodForm').addEventListener('submit', handleNeighborhoodCreate);
-  document.getElementById('billingFilterForm').addEventListener('submit', handleGenerateBillingReport);
-  document.getElementById('billingExportCsvBtn').addEventListener('click', exportBillingCsv);
-  document.getElementById('billingExportPdfBtn').addEventListener('click', exportBillingPdf);
-  document.getElementById('billingSaveCycleBtn').addEventListener('click', saveBillingCycle);
+  document.getElementById('restaurantAccountForm')?.addEventListener('submit', handleRestaurantAccountCreate);
+  document.getElementById('stateForm')?.addEventListener('submit', handleStateCreate);
+  document.getElementById('cityForm')?.addEventListener('submit', handleCityCreate);
+  document.getElementById('neighborhoodForm')?.addEventListener('submit', handleNeighborhoodCreate);
+  document.getElementById('couponForm')?.addEventListener('submit', handleCouponCreate);
+  document.getElementById('storeCategoryForm')?.addEventListener('submit', handleStoreCategoryCreate);
+  document.getElementById('uploadStoreCategoryIconBtn')?.addEventListener('click', () => document.getElementById('storeCategoryIconFile').click());
+  document.getElementById('storeCategoryIconFile')?.addEventListener('change', handleStoreCategoryIconUpload);
+  document.getElementById('storeCategoriesList')?.addEventListener('click', handleStoreCategoryListActions);
 
-  document.getElementById('storeCategoryForm').addEventListener('submit', handleStoreCategoryCreate);
-  document.getElementById('uploadStoreCategoryIconBtn').addEventListener('click', () => document.getElementById('storeCategoryIconFile').click());
-  document.getElementById('storeCategoryIconFile').addEventListener('change', handleStoreCategoryIconUpload);
-  document.getElementById('storeCategoriesList').addEventListener('click', handleStoreCategoryListActions);
-
-  document.getElementById('restaurantAccountState').addEventListener('change', (e) => populateCities('restaurantAccountCity', e.target.value));
-  document.getElementById('restaurantState').addEventListener('change', (e) => populateCities('restaurantCity', e.target.value));
-  document.getElementById('cityStateSelect').addEventListener('change', (e) => renderCitiesList(e.target.value));
-  document.getElementById('neighborhoodStateSelect').addEventListener('change', async (e) => {
+  document.getElementById('restaurantAccountState')?.addEventListener('change', (e) => populateCities('restaurantAccountCity', e.target.value));
+  document.getElementById('cityStateSelect')?.addEventListener('change', (e) => renderCitiesList(e.target.value));
+  document.getElementById('neighborhoodStateSelect')?.addEventListener('change', async (e) => {
     await populateCities('neighborhoodCitySelect', e.target.value);
     renderNeighborhoodsList(document.getElementById('neighborhoodCitySelect').value);
   });
-  document.getElementById('neighborhoodCitySelect').addEventListener('change', (e) => renderNeighborhoodsList(e.target.value));
+  document.getElementById('neighborhoodCitySelect')?.addEventListener('change', (e) => renderNeighborhoodsList(e.target.value));
+}
+
+function bindToolbar() {
+  document.getElementById('restaurantSearchInput')?.addEventListener('input', renderRestaurantAdminList);
+  document.getElementById('restaurantStatusFilter')?.addEventListener('change', renderRestaurantAdminList);
+  document.getElementById('refreshRestaurantsBtn')?.addEventListener('click', async (event) => {
+    await runWithButtonLoading(event.currentTarget, 'Atualizando...', async () => {
+      await loadRestaurants();
+      setStatus('Lista de restaurantes atualizada.');
+    });
+  });
+  document.getElementById('refreshStatusBtn')?.addEventListener('click', async (event) => {
+    await runWithButtonLoading(event.currentTarget, 'Atualizando...', async () => {
+      await refreshStatusMetrics();
+    });
+  });
 }
 
 async function loadInitialData() {
-  await Promise.all([loadStates(), loadRestaurants(), loadStoreCategories()]);
-  applyBillingDefaults();
-}
-
-function applyBillingDefaults() {
-  const startInput = document.getElementById('billingStartDate');
-  const endInput = document.getElementById('billingEndDate');
-  const commissionInput = document.getElementById('billingCommissionPercent');
-  const dueDateInput = document.getElementById('billingDueDate');
-  if (!startInput || !endInput) return;
-
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth();
-  const firstDay = new Date(year, month, 1);
-  const lastDay = new Date(year, month + 1, 0);
-  startInput.value = toInputDate(firstDay);
-  endInput.value = toInputDate(lastDay);
-  if (commissionInput && !commissionInput.value) commissionInput.value = '7';
-  if (dueDateInput && !dueDateInput.value) dueDateInput.value = toInputDate(new Date(year, month + 1, 5));
+  await Promise.all([loadStates(), loadRestaurants(), loadStoreCategories(), loadCoupons()]);
 }
 
 async function handleRestaurantAccountCreate(event) {
@@ -287,34 +297,11 @@ async function handleRestaurantAccountCreate(event) {
       state.createdAccounts = state.createdAccounts.slice(0, 12);
       saveJson(STORAGE_KEYS.created, state.createdAccounts);
       form.reset();
-      setStatus('Conta RESTAURANT criada com sucesso.');
+      setStatus('Conta de restaurante criada com sucesso.');
       renderCreatedAccounts();
-      renderSummary();
       await loadRestaurants();
     } catch (error) {
       setStatus(error.message || 'Erro ao criar conta restaurante.', true);
-    }
-  });
-}
-
-async function handleRestaurantCreate(event) {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const body = Object.fromEntries(new FormData(form).entries());
-  if (!body.cityId) delete body.cityId;
-  if (!body.description) delete body.description;
-  if (!body.logoUrl) delete body.logoUrl;
-  if (!body.phone) delete body.phone;
-  if (!body.minOrder) delete body.minOrder; else body.minOrder = Number(body.minOrder);
-  await runWithButtonLoading(event.submitter || form.querySelector('button[type="submit"]'), 'Criando restaurante...', async () => {
-    try {
-      const result = await apiRequest('POST', '/restaurants', body, true);
-      setStatus(`Restaurante ${result.name || ''} criado com sucesso.`);
-      form.reset();
-      renderSummary(result);
-      await loadRestaurants();
-    } catch (error) {
-      setStatus(error.message || 'Erro ao criar restaurante.', true);
     }
   });
 }
@@ -340,51 +327,120 @@ async function handleCityCreate(event) {
   event.preventDefault();
   const form = event.currentTarget;
   const body = Object.fromEntries(new FormData(form).entries());
-  try {
-    await apiRequest('POST', '/locations/cities', body, true);
-    form.reset();
-    setStatus('Cidade criada com sucesso.');
-    await loadStates();
-    if (body.stateId) renderCitiesList(body.stateId);
-  } catch (error) {
-    setStatus(error.message || 'Erro ao criar cidade.', true);
-  }
+  await runWithButtonLoading(event.submitter || form.querySelector('button[type="submit"]'), 'Adicionando...', async () => {
+    try {
+      await apiRequest('POST', '/locations/cities', body, true);
+      form.reset();
+      setStatus('Cidade criada com sucesso.');
+      await loadStates();
+      if (body.stateId) renderCitiesList(body.stateId);
+    } catch (error) {
+      setStatus(error.message || 'Erro ao criar cidade.', true);
+    }
+  });
 }
 
 async function handleNeighborhoodCreate(event) {
   event.preventDefault();
   const form = event.currentTarget;
   const body = Object.fromEntries(new FormData(form).entries());
+  await runWithButtonLoading(event.submitter || form.querySelector('button[type="submit"]'), 'Adicionando...', async () => {
+    try {
+      await apiRequest('POST', '/locations/neighborhoods', body, true);
+      form.reset();
+      setStatus('Bairro criado com sucesso.');
+      if (body.cityId) await renderNeighborhoodsList(body.cityId);
+    } catch (error) {
+      setStatus(error.message || 'Erro ao criar bairro.', true);
+    }
+  });
+}
+
+async function handleCouponCreate(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const data = Object.fromEntries(new FormData(form).entries());
+  const body = {
+    code: String(data.code || '').toUpperCase().trim(),
+    discountPercent: Number(data.discountPercent || 0),
+    maxDiscountAmount: Number(data.maxDiscountAmount || 0),
+    minOrderAmount: Number(data.minOrderAmount || 0),
+    maxUses: Number(data.maxUses || 0),
+    isActive: String(data.isActive) !== 'false',
+  };
+  if (data.startsAt) body.startsAt = new Date(data.startsAt).toISOString();
+  if (data.endsAt) body.endsAt = new Date(data.endsAt).toISOString();
+
+  await runWithButtonLoading(event.submitter || form.querySelector('button[type="submit"]'), 'Criando cupom...', async () => {
+    try {
+      await apiRequest('POST', '/admin/coupons', body, true);
+      form.reset();
+      setStatus(`Cupom ${body.code} criado com sucesso.`);
+      await loadCoupons();
+    } catch (error) {
+      setStatus(error.message || 'Erro ao criar cupom.', true);
+    }
+  });
+}
+
+async function loadCoupons() {
   try {
-    await apiRequest('POST', '/locations/neighborhoods', body, true);
-    form.reset();
-    setStatus('Bairro criado com sucesso.');
-    if (body.cityId) await renderNeighborhoodsList(body.cityId);
+    const response = await apiRequest('GET', '/admin/coupons?page=1&limit=12', null, true);
+    state.promotionalCoupons = Array.isArray(response?.data) ? response.data : Array.isArray(response) ? response : [];
+    renderCouponList();
   } catch (error) {
-    setStatus(error.message || 'Erro ao criar bairro.', true);
+    state.promotionalCoupons = [];
+    renderCouponList(error.message || 'Não foi possível carregar os cupons agora.');
   }
 }
 
+function renderCouponList(errorMessage = '') {
+  const el = document.getElementById('couponList');
+  if (!el) return;
+  if (errorMessage) {
+    el.innerHTML = `<div class="empty-state">${escapeHtml(errorMessage)}</div>`;
+    return;
+  }
+  if (!state.promotionalCoupons.length) {
+    el.innerHTML = '<div class="empty-state">Nenhum cupom criado até o momento.</div>';
+    return;
+  }
+  const now = Date.now();
+  el.innerHTML = state.promotionalCoupons.map((coupon) => {
+    const isExpired = coupon.endsAt ? new Date(coupon.endsAt).getTime() < now : false;
+    const remaining = Math.max(0, Number(coupon.maxUses || 0) - Number(coupon.usedCount || 0));
+    return `
+      <div class="coupon-item">
+        <div class="row-wrap" style="justify-content:space-between;align-items:flex-start;">
+          <div>
+            <strong class="coupon-code">${escapeHtml(coupon.code)}</strong>
+            <p>${Number(coupon.discountValue ?? coupon.discountPercent ?? 0).toFixed(2)}% de desconto • mínimo ${formatMoney(coupon.minOrderAmount)}</p>
+          </div>
+          <span class="state-pill ${coupon.isActive && !isExpired ? 'active' : 'inactive'}">${coupon.isActive && !isExpired ? 'Ativo' : isExpired ? 'Expirado' : 'Inativo'}</span>
+        </div>
+        <div class="coupon-meta">
+          <div class="list-item"><strong>Teto</strong><small>${formatMoney(coupon.maxDiscountAmount)}</small></div>
+          <div class="list-item"><strong>Usos restantes</strong><small>${remaining} de ${coupon.maxUses}</small></div>
+          <div class="list-item"><strong>Início</strong><small>${coupon.startsAt ? formatDateTime(coupon.startsAt) : 'Imediato'}</small></div>
+          <div class="list-item"><strong>Fim</strong><small>${coupon.endsAt ? formatDateTime(coupon.endsAt) : 'Sem data'}</small></div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
 async function loadStates() {
-  try {
-    state.states = await apiRequest('GET', '/locations/states');
-    populateStateSelects();
-    renderStatesList();
-    const firstStateId = state.states[0]?.id || '';
-    if (firstStateId) {
-      document.getElementById('restaurantAccountState').value = firstStateId;
-      document.getElementById('restaurantState').value = firstStateId;
-      document.getElementById('cityStateSelect').value = firstStateId;
-      document.getElementById('neighborhoodStateSelect').value = firstStateId;
-      await populateCities('restaurantAccountCity', firstStateId);
-      await populateCities('restaurantCity', firstStateId);
-      await populateCities('neighborhoodCitySelect', firstStateId);
-      await renderCitiesList(firstStateId);
-      await renderNeighborhoodsList(document.getElementById('neighborhoodCitySelect').value);
-    }
-    renderSummary();
-  } catch (error) {
-    setStatus(error.message || 'Erro ao carregar estados.', true);
+  state.states = await apiRequest('GET', '/locations/states');
+  populateStateSelects();
+  renderStatesList();
+  const firstStateId = state.states[0]?.id || '';
+  if (firstStateId) {
+    document.getElementById('restaurantAccountState').value = firstStateId;
+    document.getElementById('cityStateSelect').value = firstStateId;
+    document.getElementById('neighborhoodStateSelect').value = firstStateId;
+    await populateCities('restaurantAccountCity', firstStateId);
+    await populateCities('neighborhoodCitySelect', firstStateId);
+    await renderCitiesList(firstStateId);
+    await renderNeighborhoodsList(document.getElementById('neighborhoodCitySelect').value);
   }
 }
 
@@ -392,35 +448,32 @@ async function loadRestaurants() {
   try {
     const restaurants = await apiRequest('GET', '/restaurants', null, true);
     state.restaurants = Array.isArray(restaurants) ? restaurants : [];
-    populateRestaurantSelect();
-  } catch (error) {
-    state.restaurants = [];
-    populateRestaurantSelect();
-    setStatus(error.message || 'Erro ao carregar restaurantes.', true);
+  } catch {
+    const restaurants = await apiRequest('GET', '/restaurants');
+    state.restaurants = Array.isArray(restaurants) ? restaurants : [];
   }
-}
-
-function populateRestaurantSelect() {
-  const select = document.getElementById('billingRestaurantId');
-  if (!select) return;
-  select.innerHTML = ['<option value="">Selecione um restaurante</option>']
-    .concat(state.restaurants.map((restaurant) => `<option value="${restaurant.id}">${escapeHtml(restaurant.name)}</option>`))
-    .join('');
+  renderRestaurantAdminList();
+  renderRestaurantAdminStats();
+  state.appMetrics = null;
+  if (state.activePage === 'status') await refreshStatusMetrics();
 }
 
 function populateStateSelects() {
-  const selects = ['restaurantAccountState', 'restaurantState', 'cityStateSelect', 'neighborhoodStateSelect'];
+  const selects = ['restaurantAccountState', 'cityStateSelect', 'neighborhoodStateSelect'];
   selects.forEach((id) => {
     const select = document.getElementById(id);
     if (!select) return;
-    select.innerHTML = state.states.map((item) => `<option value="${item.id}">${item.name} • ${item.code}</option>`).join('');
+    select.innerHTML = state.states.map((item) => `<option value="${item.id}">${escapeHtml(item.name)} • ${escapeHtml(item.code)}</option>`).join('');
   });
 }
 
 async function populateCities(selectId, stateId) {
   const select = document.getElementById(selectId);
-  if (!select) return;
-  if (!stateId) { select.innerHTML = '<option value="">Selecione</option>'; return []; }
+  if (!select) return [];
+  if (!stateId) {
+    select.innerHTML = '<option value="">Selecione</option>';
+    return [];
+  }
   let cities = state.citiesByState.get(stateId);
   if (!cities) {
     cities = await apiRequest('GET', `/locations/states/${stateId}/cities`);
@@ -434,31 +487,40 @@ async function populateCities(selectId, stateId) {
 
 function renderStatesList() {
   const el = document.getElementById('statesList');
+  if (!el) return;
   el.innerHTML = state.states.length
-    ? state.states.map((item) => `<div class="list-item"><strong>${escapeHtml(item.name)}</strong><span class="tag">${escapeHtml(item.code)}</span></div>`).join('')
+    ? state.states.map((item) => `<div class="list-item"><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.code)}</small></div>`).join('')
     : '<div class="empty-state">Nenhum estado encontrado.</div>';
 }
 
 async function renderCitiesList(stateId) {
   const el = document.getElementById('citiesList');
-  if (!stateId) { el.innerHTML = '<div class="empty-state">Selecione um estado.</div>'; return; }
-  let resolved = state.citiesByState.get(stateId);
-  if (!resolved) {
+  if (!el) return;
+  if (!stateId) {
+    el.innerHTML = '<div class="empty-state">Selecione um estado.</div>';
+    return;
+  }
+  let cities = state.citiesByState.get(stateId);
+  if (!cities) {
     try {
-      resolved = await apiRequest('GET', `/locations/states/${stateId}/cities`);
-      state.citiesByState.set(stateId, resolved);
+      cities = await apiRequest('GET', `/locations/states/${stateId}/cities`);
+      state.citiesByState.set(stateId, cities);
     } catch {
-      resolved = [];
+      cities = [];
     }
   }
-  el.innerHTML = resolved.length
-    ? resolved.map((item) => `<div class="list-item"><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(findStateName(stateId))}</small></div>`).join('')
+  el.innerHTML = cities.length
+    ? cities.map((item) => `<div class="list-item"><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(findStateName(stateId))}</small></div>`).join('')
     : '<div class="empty-state">Nenhuma cidade neste estado.</div>';
 }
 
 async function renderNeighborhoodsList(cityId) {
   const el = document.getElementById('neighborhoodsList');
-  if (!cityId) { el.innerHTML = '<div class="empty-state">Selecione uma cidade.</div>'; return; }
+  if (!el) return;
+  if (!cityId) {
+    el.innerHTML = '<div class="empty-state">Selecione uma cidade.</div>';
+    return;
+  }
   let neighborhoods = state.neighborhoodsByCity.get(cityId);
   if (!neighborhoods) {
     neighborhoods = await apiRequest('GET', `/locations/cities/${cityId}/neighborhoods`);
@@ -472,6 +534,7 @@ async function renderNeighborhoodsList(cityId) {
 function findStateName(stateId) {
   return state.states.find((item) => item.id === stateId)?.name || 'Estado';
 }
+
 function findCityName(cityId) {
   for (const cities of state.citiesByState.values()) {
     const city = cities.find((item) => item.id === cityId);
@@ -488,264 +551,228 @@ function renderCreatedAccounts() {
     return;
   }
   el.innerHTML = state.createdAccounts.map((entry) => {
-    const date = new Date(entry.createdAt).toLocaleString('pt-BR');
+    const createdAt = entry.createdAt ? new Date(entry.createdAt).toLocaleString('pt-BR') : '-';
     return `
       <div class="created-item">
-        <strong>${escapeHtml(entry.user?.name || 'Usuário')} • ${escapeHtml(entry.user?.email || '')}</strong>
+        <strong>${escapeHtml(entry.restaurant?.name || 'Restaurante')}</strong>
+        <p class="soft-text">${escapeHtml(entry.user?.name || 'Responsável')} • ${escapeHtml(entry.user?.email || '')}</p>
         <div class="copy-row">
-          <span class="copy-chip">ownerId: ${escapeHtml(entry.user?.id || '-')}</span>
+          <span class="copy-chip">ID: ${escapeHtml(entry.user?.id || '-')}</span>
           <button class="btn-link" type="button" data-copy="${escapeAttribute(entry.user?.id || '')}">Copiar ID</button>
-          <button class="btn-link" type="button" data-use-owner="${escapeAttribute(entry.user?.id || '')}">Usar</button>
         </div>
         <div class="copy-row">
-          <span class="tag">Restaurante: ${escapeHtml(entry.restaurant?.name || '-')}</span>
-          <span class="tag">Criado em ${escapeHtml(date)}</span>
+          <span class="tag">Criado em ${escapeHtml(createdAt)}</span>
+        </div>
+      </div>`;
+  }).join('');
+  el.querySelectorAll('[data-copy]').forEach((btn) => btn.addEventListener('click', async () => {
+    await navigator.clipboard.writeText(btn.dataset.copy || '');
+    setStatus('ID copiado para a área de transferência.');
+  }));
+}
+
+function renderRestaurantAdminStats() {
+  const el = document.getElementById('restaurantAdminStats');
+  if (!el) return;
+  const total = state.restaurants.length;
+  const active = state.restaurants.filter((item) => item.isActive !== false).length;
+  const inactive = total - active;
+  el.innerHTML = [
+    { title: 'Restaurantes na base', value: total },
+    { title: 'Ativos', value: active },
+    { title: 'Inativos', value: inactive },
+  ].map((item) => `<div class="summary-item metric-card-accent"><strong>${escapeHtml(item.title)}</strong><div class="metric-value">${item.value}</div></div>`).join('');
+}
+
+function getFilteredRestaurants() {
+  const query = String(document.getElementById('restaurantSearchInput')?.value || '').trim().toLowerCase();
+  const filter = document.getElementById('restaurantStatusFilter')?.value || 'all';
+  return state.restaurants.filter((restaurant) => {
+    const haystack = [restaurant.name, restaurant.phone, restaurant.address, restaurant.city?.name, restaurant.city?.state?.code].filter(Boolean).join(' ').toLowerCase();
+    const matchesQuery = !query || haystack.includes(query);
+    const matchesStatus = filter === 'all' || (filter === 'active' ? restaurant.isActive !== false : restaurant.isActive === false);
+    return matchesQuery && matchesStatus;
+  });
+}
+
+function renderRestaurantAdminList() {
+  const el = document.getElementById('restaurantList');
+  if (!el) return;
+  const restaurants = getFilteredRestaurants();
+  if (!restaurants.length) {
+    el.innerHTML = '<div class="empty-state">Nenhum restaurante encontrado com esse filtro.</div>';
+    return;
+  }
+  el.innerHTML = restaurants.map((restaurant) => {
+    const categories = Array.isArray(restaurant.categoryNames) && restaurant.categoryNames.length ? restaurant.categoryNames.join(', ') : 'Sem categorias';
+    return `
+      <div class="restaurant-card">
+        <div class="restaurant-card-head">
+          <div class="restaurant-title-wrap">
+            <strong>${escapeHtml(restaurant.name || 'Restaurante')}</strong>
+            <div class="restaurant-meta">
+              <span class="state-pill ${restaurant.isActive !== false ? 'active' : 'inactive'}">${restaurant.isActive !== false ? 'Ativo' : 'Inativo'}</span>
+              <span class="metric-chip">${escapeHtml(restaurant.city?.name || 'Cidade não definida')}</span>
+              <span class="metric-chip">${escapeHtml(restaurant.city?.state?.code || 'UF')}</span>
+            </div>
+          </div>
+          <span class="info-chip">${restaurant.acceptsOrdersNow ? 'Aceita pedidos agora' : 'Sem pedidos no momento'}</span>
+        </div>
+        <p class="restaurant-subline">${escapeHtml(restaurant.description || restaurant.address || 'Sem descrição cadastrada.')}</p>
+        <div class="restaurant-meta">
+          <span class="tag">${escapeHtml(restaurant.phone || 'Sem telefone')}</span>
+          <span class="tag">Categorias: ${escapeHtml(categories)}</span>
+          <span class="tag">Horário: ${escapeHtml(restaurant.openingStatusLabel || 'Não informado')}</span>
+        </div>
+        <div class="restaurant-actions">
+          <span class="soft-text">${restaurant.isActive !== false ? 'Admin pode desativar este restaurante agora.' : 'Restaurante desativado manualmente pelo admin.'}</span>
+          <button
+            type="button"
+            class="status-toggle ${restaurant.isActive !== false ? 'turn-off' : 'turn-on'}"
+            data-restaurant-status="${escapeAttribute(restaurant.id)}"
+            data-next-active="${restaurant.isActive === false ? 'true' : 'false'}"
+          >
+            ${restaurant.isActive !== false ? 'Desativar restaurante' : 'Reativar restaurante'}
+          </button>
         </div>
       </div>`;
   }).join('');
 
-  el.querySelectorAll('[data-copy]').forEach((btn) => btn.addEventListener('click', async () => {
-    await navigator.clipboard.writeText(btn.dataset.copy || '');
-    setStatus('ID copiado.');
-  }));
-  el.querySelectorAll('[data-use-owner]').forEach((btn) => btn.addEventListener('click', () => {
-    document.getElementById('restaurantOwnerId').value = btn.dataset.useOwner || '';
-    setStatus('ownerId preenchido no formulário de restaurante.');
-  }));
-}
-
-function renderSummary(lastRestaurant) {
-  const el = document.getElementById('summaryCards');
-  if (!el) return;
-  const latestUser = state.createdAccounts[0]?.user;
-  const latestRestaurant = lastRestaurant || state.createdAccounts[0]?.restaurant;
-  el.innerHTML = [
-    { title: 'Usuário RESTAURANT recente', text: latestUser ? `${latestUser.name} • ${latestUser.id}` : 'Nenhum criado ainda.' },
-    { title: 'Restaurante recente', text: latestRestaurant ? `${latestRestaurant.name} • ${latestRestaurant.id}` : 'Nenhum restaurante recente.' },
-    { title: 'Restaurantes cadastrados', text: `${state.restaurants.length} restaurante(s) na base.` },
-  ].map((item) => `<div class="summary-item"><strong>${escapeHtml(item.title)}</strong><p>${escapeHtml(item.text)}</p></div>`).join('');
-}
-
-async function handleGenerateBillingReport(event) {
-  event.preventDefault();
-  const restaurantId = document.getElementById('billingRestaurantId').value;
-  const startDate = document.getElementById('billingStartDate').value;
-  const endDate = document.getElementById('billingEndDate').value;
-  const commissionPercent = Number(document.getElementById('billingCommissionPercent').value || 7);
-
-  if (!restaurantId) {
-    setStatus('Selecione um restaurante para gerar o faturamento.', true);
-    return;
-  }
-
-  try {
-    setStatus('Gerando relatório de faturamento...');
-    const query = new URLSearchParams({
-      restaurantId,
-      startDate,
-      endDate,
-      commissionPercent: String(commissionPercent),
+  el.querySelectorAll('[data-restaurant-status]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const restaurant = state.restaurants.find((item) => item.id === button.dataset.restaurantStatus);
+      const nextActive = button.dataset.nextActive === 'true';
+      const question = nextActive
+        ? `Reativar ${restaurant?.name || 'este restaurante'}?`
+        : `Desativar ${restaurant?.name || 'este restaurante'}?`;
+      if (!window.confirm(question)) return;
+      await runWithButtonLoading(button, nextActive ? 'Reativando...' : 'Desativando...', async () => {
+        try {
+          await apiRequest('PATCH', `/restaurants/${button.dataset.restaurantStatus}/status`, { isActive: nextActive }, true);
+          setStatus(nextActive ? 'Restaurante reativado.' : 'Restaurante desativado.');
+          await loadRestaurants();
+        } catch (error) {
+          setStatus(error.message || 'Não foi possível alterar o status do restaurante.', true);
+        }
+      });
     });
-    state.billingReport = await apiRequest('GET', `/billing/report?${query.toString()}`, null, true);
-    renderBillingReport(state.billingReport);
-    setStatus('Relatório de faturamento gerado com sucesso.');
-  } catch (error) {
-    renderBillingReport(null);
-    setStatus(error.message || 'Erro ao gerar relatório de faturamento.', true);
-  }
-}
-
-function renderBillingReport(report) {
-  const bodyEl = document.getElementById('billingReportBody');
-  const cardsEl = document.getElementById('billingSummaryCards');
-  const metaEl = document.getElementById('billingReportMeta');
-  const actionsEl = document.getElementById('billingReportActions');
-  if (!bodyEl || !cardsEl || !metaEl || !actionsEl) return;
-
-  if (!report) {
-    metaEl.innerHTML = '<p class="muted">Escolha o restaurante e o período para ver o fechamento com taxa de 7% ou a taxa que você informar.</p>';
-    cardsEl.innerHTML = '';
-    bodyEl.innerHTML = '<tr><td colspan="9" class="empty-cell">Nenhum relatório carregado.</td></tr>';
-    actionsEl.classList.add('hidden');
-    return;
-  }
-
-  const start = formatDateTime(report.period.startDate, false);
-  const end = formatDateTime(report.period.endDate, false);
-  metaEl.innerHTML = `
-    <div class="billing-meta-grid">
-      <div><strong>Restaurante</strong><span>${escapeHtml(report.restaurant.name)}</span></div>
-      <div><strong>Período</strong><span>${escapeHtml(start)} até ${escapeHtml(end)}</span></div>
-      <div><strong>Taxa aplicada</strong><span>${Number(report.commission.percent).toFixed(2)}%</span></div>
-    </div>`;
-
-  cardsEl.innerHTML = [
-    ['Pedidos totais', String(report.totals.totalOrders)],
-    ['Pedidos faturáveis', String(report.totals.billableOrders)],
-    ['Cancelados', String(report.totals.canceledOrders)],
-    ['Total válido', formatMoney(report.totals.grossSales)],
-    ['Cancelados descontados', formatMoney(report.totals.canceledSales)],
-    ['Sua taxa', formatMoney(report.commission.amount)],
-    ['Líquido do restaurante', formatMoney(report.totals.netSalesAfterCommission)],
-  ].map(([title, value]) => `<div class="summary-item summary-item-accent"><strong>${escapeHtml(title)}</strong><p>${escapeHtml(value)}</p></div>`).join('');
-
-  bodyEl.innerHTML = report.orders.length
-    ? report.orders.map((order) => `
-      <tr>
-        <td>${order.line}</td>
-        <td><strong>#${escapeHtml(String(order.id).slice(0, 8))}</strong><br><small>${escapeHtml(formatDateTime(order.createdAt))}</small></td>
-        <td>${escapeHtml(order.customerName || '-')}</td>
-        <td>${escapeHtml(statusLabel(order.status))}</td>
-        <td>${escapeHtml(paymentLabel(order.paymentMethod))}</td>
-        <td>${formatMoney(order.total)}</td>
-        <td>${order.isCanceled ? '<span class="pill-flag danger">Sim</span>' : '<span class="pill-flag success">Não</span>'}</td>
-        <td>${formatMoney(order.commissionBase)}</td>
-        <td>${formatMoney(order.commissionAmount)}</td>
-      </tr>`).join('')
-    : '<tr><td colspan="9" class="empty-cell">Nenhum pedido no período informado.</td></tr>';
-
-  actionsEl.classList.remove('hidden');
-}
-
-async function saveBillingCycle(event) {
-  if (!state.billingReport) {
-    setStatus('Gere o relatório antes de salvar o fechamento.', true);
-    return;
-  }
-
-  const dueDate = document.getElementById('billingDueDate').value;
-  const notes = document.getElementById('billingNotes').value;
-  await runWithButtonLoading(event?.currentTarget || document.getElementById('billingSaveCycleBtn'), 'Salvando fechamento...', async () => {
-    try {
-      setStatus('Salvando fechamento no backend...');
-      const payload = {
-        restaurantId: state.billingReport.restaurant.id,
-        startDate: document.getElementById('billingStartDate').value,
-        endDate: document.getElementById('billingEndDate').value,
-        commissionPercent: Number(document.getElementById('billingCommissionPercent').value || 7),
-        dueDate: dueDate || undefined,
-        notes: notes || undefined,
-      };
-      const cycle = await apiRequest('POST', '/billing/cycles/save', payload, true);
-      setStatus(`Fechamento salvo com sucesso. Ciclo ${cycle.id.slice(0, 8)} criado/atualizado.`);
-    } catch (error) {
-      setStatus(error.message || 'Erro ao salvar fechamento.', true);
-    }
   });
 }
 
-function exportBillingCsv() {
-  if (!state.billingReport) {
-    setStatus('Gere o relatório antes de exportar.', true);
-    return;
+async function refreshStatusMetrics() {
+  setStatus('Atualizando métricas da aplicação...', false, 'loading');
+  const cardsEl = document.getElementById('appStatusCards');
+  if (cardsEl) cardsEl.innerHTML = '<div class="empty-state">Calculando métricas...</div>';
+  try {
+    const metrics = await buildAppMetrics();
+    state.appMetrics = metrics;
+    renderStatusMetrics();
+    setStatus('Métricas atualizadas com sucesso.');
+  } catch (error) {
+    setStatus(error.message || 'Não foi possível atualizar as métricas.', true);
   }
-
-  const rows = [
-    ['Restaurante', state.billingReport.restaurant.name],
-    ['Período inicial', formatDateTime(state.billingReport.period.startDate, false)],
-    ['Período final', formatDateTime(state.billingReport.period.endDate, false)],
-    ['Taxa (%)', Number(state.billingReport.commission.percent).toFixed(2)],
-    ['Pedidos totais', state.billingReport.totals.totalOrders],
-    ['Pedidos faturáveis', state.billingReport.totals.billableOrders],
-    ['Pedidos cancelados', state.billingReport.totals.canceledOrders],
-    ['Total válido', state.billingReport.totals.grossSales],
-    ['Cancelados descontados', state.billingReport.totals.canceledSales],
-    ['Sua taxa', state.billingReport.commission.amount],
-    ['Líquido restaurante', state.billingReport.totals.netSalesAfterCommission],
-    [],
-    ['Linha', 'Pedido', 'Data', 'Cliente', 'Status', 'Pagamento', 'Total', 'Cancelado', 'Base comissão', 'Valor comissão'],
-    ...state.billingReport.orders.map((order) => [
-      order.line,
-      order.id,
-      formatDateTime(order.createdAt),
-      order.customerName || '',
-      statusLabel(order.status),
-      paymentLabel(order.paymentMethod),
-      order.total,
-      order.isCanceled ? 'Sim' : 'Não',
-      order.commissionBase,
-      order.commissionAmount,
-    ]),
-  ];
-
-  downloadCsv(rows, `faturamento-${slugify(state.billingReport.restaurant.name)}-${document.getElementById('billingStartDate').value}-${document.getElementById('billingEndDate').value}.csv`);
-  setStatus('Planilha CSV gerada com sucesso.');
 }
 
-function exportBillingPdf() {
-  if (!state.billingReport) {
-    setStatus('Gere o relatório antes de exportar.', true);
-    return;
+async function buildAppMetrics() {
+  const restaurants = state.restaurants || [];
+  const totalRestaurants = restaurants.length;
+  const activeRestaurants = restaurants.filter((item) => item.isActive !== false).length;
+  const inactiveRestaurants = totalRestaurants - activeRestaurants;
+
+  const allOrders = [];
+  for (const restaurant of restaurants) {
+    const restaurantOrders = await fetchAllOrdersForRestaurant(restaurant.id);
+    allOrders.push(...restaurantOrders);
   }
 
-  const report = state.billingReport;
-  const win = window.open('', '_blank', 'width=1080,height=820');
-  if (!win) {
-    setStatus('O navegador bloqueou a janela de impressão. Libere pop-up para gerar PDF.', true);
-    return;
-  }
+  const now = new Date();
+  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startWeek = new Date(startToday);
+  startWeek.setDate(startWeek.getDate() - 6);
+  const startMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-  const rows = report.orders.map((order) => `
-    <tr>
-      <td>${order.line}</td>
-      <td>#${escapeHtml(String(order.id).slice(0, 8))}</td>
-      <td>${escapeHtml(formatDateTime(order.createdAt))}</td>
-      <td>${escapeHtml(order.customerName || '-')}</td>
-      <td>${escapeHtml(statusLabel(order.status))}</td>
-      <td>${formatMoney(order.total)}</td>
-      <td>${order.isCanceled ? 'Sim' : 'Não'}</td>
-      <td>${formatMoney(order.commissionAmount)}</td>
-    </tr>`).join('');
+  const ordersToday = allOrders.filter((order) => new Date(order.createdAt) >= startToday).length;
+  const ordersWeek = allOrders.filter((order) => new Date(order.createdAt) >= startWeek).length;
+  const ordersMonth = allOrders.filter((order) => new Date(order.createdAt) >= startMonth).length;
+  const deliveredMonth = allOrders.filter((order) => order.status === 'DELIVERED' && new Date(order.createdAt) >= startMonth).length;
+  const canceledMonth = allOrders.filter((order) => order.status === 'CANCELED' && new Date(order.createdAt) >= startMonth).length;
+  const recentCustomerCount = new Set(allOrders.map((order) => order.user?.id).filter(Boolean)).size;
 
-  win.document.write(`<!doctype html>
-  <html lang="pt-BR">
-  <head>
-    <meta charset="utf-8" />
-    <title>Faturamento • ${escapeHtml(report.restaurant.name)}</title>
-    <style>
-      body { font-family: Arial, sans-serif; color: #231f20; padding: 28px; }
-      h1 { margin: 0 0 8px; }
-      .muted { color: #666; }
-      .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 18px 0 22px; }
-      .card { border: 1px solid #ddd; border-radius: 12px; padding: 12px; }
-      table { width: 100%; border-collapse: collapse; margin-top: 18px; }
-      th, td { border: 1px solid #ddd; padding: 8px; font-size: 12px; text-align: left; }
-      th { background: #f7efe6; }
-      .totals { margin-top: 22px; display: grid; gap: 6px; }
-    </style>
-  </head>
-  <body>
-    <h1>Fechamento de faturamento</h1>
-    <p class="muted">Restaurante: ${escapeHtml(report.restaurant.name)} • Período: ${escapeHtml(formatDateTime(report.period.startDate, false))} até ${escapeHtml(formatDateTime(report.period.endDate, false))}</p>
-    <div class="grid">
-      <div class="card"><strong>Pedidos totais</strong><div>${report.totals.totalOrders}</div></div>
-      <div class="card"><strong>Pedidos faturáveis</strong><div>${report.totals.billableOrders}</div></div>
-      <div class="card"><strong>Cancelados</strong><div>${report.totals.canceledOrders}</div></div>
-      <div class="card"><strong>Total válido</strong><div>${formatMoney(report.totals.grossSales)}</div></div>
-      <div class="card"><strong>Taxa aplicada</strong><div>${Number(report.commission.percent).toFixed(2)}%</div></div>
-      <div class="card"><strong>Valor da taxa</strong><div>${formatMoney(report.commission.amount)}</div></div>
-    </div>
-    <table>
-      <thead>
-        <tr>
-          <th>#</th><th>Pedido</th><th>Data</th><th>Cliente</th><th>Status</th><th>Total</th><th>Cancelado</th><th>Comissão</th>
-        </tr>
-      </thead>
-      <tbody>${rows || '<tr><td colspan="8">Nenhum pedido no período.</td></tr>'}</tbody>
-    </table>
-    <div class="totals">
-      <strong>Cancelados descontados: ${formatMoney(report.totals.canceledSales)}</strong>
-      <strong>Líquido do restaurante: ${formatMoney(report.totals.netSalesAfterCommission)}</strong>
-    </div>
-  </body>
-  </html>`);
-  win.document.close();
-  win.focus();
-  win.print();
-  setStatus('Janela de impressão aberta. Salve como PDF no navegador.');
+  return {
+    totalRestaurants,
+    activeRestaurants,
+    inactiveRestaurants,
+    ordersToday,
+    ordersWeek,
+    ordersMonth,
+    deliveredMonth,
+    canceledMonth,
+    recentCustomerCount,
+    totalOrdersLoaded: allOrders.length,
+  };
 }
 
-// ─── Store Categories ────────────────────────────────────────────────────────
+async function fetchAllOrdersForRestaurant(restaurantId) {
+  const collected = [];
+  let page = 1;
+  let totalPages = 1;
+  do {
+    const response = await apiRequest('GET', `/orders/restaurant/${restaurantId}?page=${page}&limit=100`, null, true);
+    const data = Array.isArray(response?.data) ? response.data : [];
+    const pagination = response?.pagination || { totalPages: 1 };
+    collected.push(...data);
+    totalPages = pagination.totalPages || 1;
+    page += 1;
+  } while (page <= totalPages);
+  return collected;
+}
+
+function renderStatusMetrics() {
+  const metrics = state.appMetrics;
+  const cardsEl = document.getElementById('appStatusCards');
+  const highlightsEl = document.getElementById('statusHighlights');
+  const narrativeEl = document.getElementById('statusNarrative');
+  if (!cardsEl || !highlightsEl || !narrativeEl) return;
+  if (!metrics) {
+    cardsEl.innerHTML = '<div class="empty-state">As métricas ainda não foram carregadas.</div>';
+    highlightsEl.innerHTML = '';
+    narrativeEl.innerHTML = '<div class="empty-state">Sem resumo disponível.</div>';
+    return;
+  }
+
+  cardsEl.innerHTML = [
+    ['Restaurantes', metrics.totalRestaurants, 'Total cadastrado na base'],
+    ['Pedidos hoje', metrics.ordersToday, 'Volume do dia corrente'],
+    ['Pedidos na semana', metrics.ordersWeek, 'Últimos 7 dias'],
+    ['Pedidos no mês', metrics.ordersMonth, 'Mês atual'],
+    ['Clientes com pedidos', metrics.recentCustomerCount, 'Contagem a partir dos pedidos carregados'],
+    ['Ativos', metrics.activeRestaurants, 'Restaurantes aptos a operar'],
+    ['Inativos', metrics.inactiveRestaurants, 'Restaurantes pausados ou desligados'],
+    ['Cancelados no mês', metrics.canceledMonth, 'Pedidos cancelados no período'],
+  ].map(([title, value, text]) => `
+    <div class="summary-item metric-card-accent">
+      <strong>${escapeHtml(title)}</strong>
+      <div class="metric-value">${escapeHtml(String(value))}</div>
+      <p>${escapeHtml(text)}</p>
+    </div>`).join('');
+
+  const deliveryRate = metrics.ordersMonth ? Math.round((metrics.deliveredMonth / metrics.ordersMonth) * 100) : 0;
+  highlightsEl.innerHTML = [
+    `<div class="list-item"><strong>Base de restaurantes</strong><small>${metrics.activeRestaurants} ativos de ${metrics.totalRestaurants} cadastrados.</small></div>`,
+    `<div class="list-item"><strong>Pedidos carregados</strong><small>${metrics.totalOrdersLoaded} pedido(s) consolidados em todas as páginas dos restaurantes.</small></div>`,
+    `<div class="list-item"><strong>Entrega no mês</strong><small>${metrics.deliveredMonth} entregues • taxa aproximada de sucesso ${deliveryRate}%.</small></div>`,
+    `<div class="list-item"><strong>Leitura de usuários</strong><small>${metrics.recentCustomerCount} clientes únicos identificados nos pedidos carregados. Total geral de usuários exige endpoint próprio.</small></div>`,
+  ].join('');
+
+  narrativeEl.innerHTML = `
+    <p>Hoje o painel mostra <strong>${metrics.totalRestaurants}</strong> restaurantes, sendo <strong>${metrics.activeRestaurants}</strong> ativos e <strong>${metrics.inactiveRestaurants}</strong> inativos.</p>
+    <ul>
+      <li>No dia foram vistos <strong>${metrics.ordersToday}</strong> pedidos.</li>
+      <li>Na semana, o acumulado está em <strong>${metrics.ordersWeek}</strong> pedidos.</li>
+      <li>No mês atual, a operação soma <strong>${metrics.ordersMonth}</strong> pedidos, com <strong>${metrics.canceledMonth}</strong> cancelados.</li>
+      <li>Clientes únicos identificados nos pedidos carregados: <strong>${metrics.recentCustomerCount}</strong>.</li>
+    </ul>`;
+}
 
 async function loadStoreCategories() {
   try {
@@ -753,6 +780,7 @@ async function loadStoreCategories() {
     renderStoreCategoriesList();
   } catch (error) {
     state.storeCategories = [];
+    renderStoreCategoriesList();
     setStatus(error.message || 'Erro ao carregar categorias de loja.', true);
   }
 }
@@ -763,7 +791,10 @@ async function handleStoreCategoryCreate(event) {
   const name = document.getElementById('storeCategoryName').value.trim();
   const iconUrl = document.getElementById('storeCategoryIconUrl').value.trim();
   const sortOrder = Number(document.getElementById('storeCategorySortOrder').value || 0);
-  if (!name) { setStatus('Informe o nome da categoria.', true); return; }
+  if (!name) {
+    setStatus('Informe o nome da categoria.', true);
+    return;
+  }
   await runWithButtonLoading(event.submitter || form.querySelector('button[type="submit"]'), 'Criando...', async () => {
     try {
       await apiRequest('POST', '/store-categories', { name, iconUrl: iconUrl || undefined, sortOrder }, true);
@@ -789,17 +820,21 @@ async function handleStoreCategoryIconUpload(event) {
       formData.append('file', file);
       const response = await fetch(`${proxyBase}?path=${encodeURIComponent('/uploads/store-category-icon')}`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${state.accessToken}`, 'x-target-base-url': window.__API_BASE_URL__ || '' },
+        headers: { Authorization: `Bearer ${state.accessToken}`, 'x-target-base-url': API_BASE_URL },
         body: formData,
       });
       const text = await response.text();
-      let data; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+      let data;
+      try { data = text ? JSON.parse(text) : null; } catch { data = text; }
       if (!response.ok) throw new Error(data?.message || data?.data?.message || `Erro ${response.status}`);
       const url = (data?.data || data)?.url || '';
       document.getElementById('storeCategoryIconUrl').value = url;
       const previewWrap = document.getElementById('storeCategoryIconPreviewWrap');
       const preview = document.getElementById('storeCategoryIconPreview');
-      if (url) { preview.src = url; previewWrap.classList.remove('hidden'); }
+      if (url) {
+        preview.src = url;
+        previewWrap.classList.remove('hidden');
+      }
       setStatus('Ícone enviado com sucesso.');
     } catch (error) {
       setStatus(error.message || 'Erro ao enviar ícone.', true);
@@ -809,20 +844,19 @@ async function handleStoreCategoryIconUpload(event) {
 
 async function handleStoreCategoryListActions(event) {
   const deleteBtn = event.target.closest('[data-delete-category]');
-  if (deleteBtn) {
-    const id = deleteBtn.dataset.deleteCategory;
-    const name = deleteBtn.dataset.categoryName || '';
-    if (!confirm(`Remover a categoria "${name}"? Os restaurantes que a usam perderão o vínculo.`)) return;
-    await runWithButtonLoading(deleteBtn, 'Removendo...', async () => {
-      try {
-        await apiRequest('DELETE', `/store-categories/${id}`, null, true);
-        setStatus(`Categoria "${name}" removida.`);
-        await loadStoreCategories();
-      } catch (error) {
-        setStatus(error.message || 'Erro ao remover categoria.', true);
-      }
-    });
-  }
+  if (!deleteBtn) return;
+  const id = deleteBtn.dataset.deleteCategory;
+  const name = deleteBtn.dataset.categoryName || '';
+  if (!window.confirm(`Remover a categoria "${name}"?`)) return;
+  await runWithButtonLoading(deleteBtn, 'Removendo...', async () => {
+    try {
+      await apiRequest('DELETE', `/store-categories/${id}`, null, true);
+      setStatus(`Categoria "${name}" removida.`);
+      await loadStoreCategories();
+    } catch (error) {
+      setStatus(error.message || 'Erro ao remover categoria.', true);
+    }
+  });
 }
 
 function renderStoreCategoriesList() {
@@ -834,21 +868,23 @@ function renderStoreCategoriesList() {
     return;
   }
   el.innerHTML = list
+    .slice()
     .sort((a, b) => (a.sortOrder - b.sortOrder) || a.name.localeCompare(b.name))
     .map((cat) => `
-      <div class="list-item" style="gap:12px;align-items:center;">
-        ${cat.iconUrl ? `<img src="${escapeAttribute(cat.iconUrl)}" alt="${escapeAttribute(cat.name)}" style="width:36px;height:36px;border-radius:8px;object-fit:cover;flex-shrink:0;" />` : '<div style="width:36px;height:36px;border-radius:8px;background:#f3e8e5;flex-shrink:0;"></div>'}
-        <div style="flex:1;">
-          <strong>${escapeHtml(cat.name)}</strong>
-          <span class="tag" style="margin-left:8px;">Ordem ${cat.sortOrder}</span>
-          ${cat.isActive ? '' : '<span class="tag" style="margin-left:4px;background:#fff0ef;color:#b31413;">Inativo</span>'}
+      <div class="list-item">
+        <div class="row-wrap" style="justify-content:space-between;align-items:center;">
+          <div class="row-wrap">
+            ${cat.iconUrl ? `<img src="${escapeAttribute(cat.iconUrl)}" alt="${escapeAttribute(cat.name)}" style="width:36px;height:36px;border-radius:10px;object-fit:cover;">` : '<div style="width:36px;height:36px;border-radius:10px;background:rgba(255,255,255,.08);"></div>'}
+            <div>
+              <strong>${escapeHtml(cat.name)}</strong>
+              <small>Ordem ${cat.sortOrder}</small>
+            </div>
+          </div>
+          <button class="btn-link" type="button" data-delete-category="${escapeAttribute(cat.id)}" data-category-name="${escapeAttribute(cat.name)}">Remover</button>
         </div>
-        <button class="btn-link" type="button" data-delete-category="${escapeAttribute(cat.id)}" data-category-name="${escapeAttribute(cat.name)}">Remover</button>
       </div>`)
     .join('');
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
 
 function formatMoney(value) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value || 0));
@@ -856,66 +892,8 @@ function formatMoney(value) {
 
 function formatDateTime(value, withTime = true) {
   const date = new Date(value);
-  return new Intl.DateTimeFormat('pt-BR', {
-    dateStyle: 'short',
-    ...(withTime ? { timeStyle: 'short' } : {}),
-  }).format(date);
-}
-
-function paymentLabel(value) {
-  return {
-    CASH: 'Dinheiro',
-    PIX: 'PIX',
-    CREDIT_CARD: 'Cartão crédito',
-    DEBIT_CARD: 'Cartão débito',
-  }[value] || value || '-';
-}
-
-function statusLabel(value) {
-  return {
-    PENDING: 'Pendente',
-    ACCEPTED: 'Aceito',
-    PREPARING: 'Em preparo',
-    DELIVERY: 'Saiu para entrega',
-    DELIVERED: 'Entregue',
-    CANCELED: 'Cancelado',
-  }[value] || value || '-';
-}
-
-function downloadCsv(rows, filename) {
-  const content = rows.map((row) => row.map(csvEscape).join(';')).join('\n');
-  const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-}
-
-function csvEscape(value) {
-  const text = String(value ?? '');
-  if (/[,;"\n]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
-  return text;
-}
-
-function slugify(value) {
-  return String(value || 'restaurante')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/(^-|-$)/g, '') || 'restaurante';
-}
-
-function toInputDate(value) {
-  const date = new Date(value);
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  if (Number.isNaN(date.getTime())) return '-';
+  return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', ...(withTime ? { timeStyle: 'short' } : {}) }).format(date);
 }
 
 function escapeHtml(value) {

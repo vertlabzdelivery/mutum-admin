@@ -62,287 +62,293 @@
           </div>
         </header>
 
-        <main class="dashboard">
-          <section class="hero-card">
+        <main class="dashboard-shell">
+          <section class="nav-strip">
+            <button type="button" class="nav-tab is-active" data-page="inicio">Início</button>
+            <button type="button" class="nav-tab" data-page="restaurantes">Restaurantes</button>
+            <button type="button" class="nav-tab" data-page="status">Status da aplicação</button>
+          </section>
+
+          <section class="status-banner">
             <div>
-              <h2>Gestão rápida</h2>
-              <p>Crie contas de restaurante, cadastre restaurantes, organize localidades e feche o faturamento por período.</p>
+              <strong>Painel pronto</strong>
+              <p id="statusText">Carregando os dados iniciais do admin...</p>
             </div>
-            <div class="hero-status" id="statusBox">Pronto.</div>
+            <span id="statusBadge" class="status-badge">Sincronizando</span>
           </section>
 
-          <section class="grid two-cols">
-            <article class="panel-card">
-              <div class="section-title">
-                <h3>Conta de restaurante</h3>
-                <p>Cria um usuário com papel RESTAURANT e já retorna os dados gerados pela API.</p>
+          <section class="page-panel" data-page-panel="inicio">
+            <div class="page-head">
+              <div>
+                <h2>Início</h2>
+                <p>Cadastre contas de restaurante, regiões, categorias e cupons promocionais em um só lugar.</p>
               </div>
-              <form id="restaurantAccountForm" class="stack-form">
-                <div class="grid two-cols inner-grid">
-                  <div>
-                    <label>Nome do responsável</label>
-                    <input name="ownerName" required />
-                  </div>
-                  <div>
-                    <label>Telefone do responsável</label>
-                    <input name="ownerPhone" />
-                  </div>
-                  <div>
-                    <label>E-mail</label>
-                    <input name="email" type="email" required />
-                  </div>
-                  <div>
-                    <label>Senha</label>
-                    <input name="password" type="password" minlength="6" required />
-                  </div>
-                  <div>
-                    <label>Nome do restaurante</label>
-                    <input name="restaurantName" required />
-                  </div>
-                  <div>
-                    <label>Telefone do restaurante</label>
-                    <input name="restaurantPhone" />
-                  </div>
-                  <div class="full">
-                    <label>Endereço textual</label>
-                    <input name="address" placeholder="Rua, número, bairro" required />
-                  </div>
-                  <div class="full">
-                    <label>Descrição do restaurante</label>
-                    <textarea name="restaurantDescription" rows="3"></textarea>
-                  </div>
-                  <div class="full">
-                    <label>Logo URL</label>
-                    <input name="restaurantLogoUrl" />
-                  </div>
-                  <div>
-                    <label>Estado</label>
-                    <select id="restaurantAccountState"></select>
-                  </div>
-                  <div>
-                    <label>Cidade</label>
-                    <select name="cityId" id="restaurantAccountCity"></select>
-                  </div>
-                </div>
-                <button type="submit" class="btn-primary">Criar conta restaurante</button>
-              </form>
-
-              <div class="result-box">
-                <div class="result-head">
-                  <strong>Últimos cadastros</strong>
-                  <button id="clearCreatedUsers" class="btn-link" type="button">Limpar</button>
-                </div>
-                <div id="createdUsersList" class="created-list empty-state">Nenhuma conta criada ainda.</div>
-              </div>
-            </article>
-
-            <article class="panel-card">
-              <div class="section-title">
-                <h3>Criar restaurante por ownerId</h3>
-                <p>Use quando já tiver um usuário RESTAURANT e quiser vincular um novo restaurante.</p>
-              </div>
-              <form id="restaurantForm" class="stack-form">
-                <div class="grid two-cols inner-grid">
-                  <div class="full">
-                    <label>ownerId</label>
-                    <input name="ownerId" id="restaurantOwnerId" placeholder="UUID do usuário RESTAURANT" required />
-                  </div>
-                  <div>
-                    <label>Nome</label>
-                    <input name="name" required />
-                  </div>
-                  <div>
-                    <label>Telefone</label>
-                    <input name="phone" />
-                  </div>
-                  <div class="full">
-                    <label>Endereço textual</label>
-                    <input name="address" required />
-                  </div>
-                  <div class="full">
-                    <label>Descrição</label>
-                    <textarea name="description" rows="3"></textarea>
-                  </div>
-                  <div class="full">
-                    <label>Logo URL</label>
-                    <input name="logoUrl" />
-                  </div>
-                  <div>
-                    <label>Pedido mínimo</label>
-                    <input name="minOrder" type="number" min="0" step="0.01" />
-                  </div>
-                  <div>
-                    <label>Estado</label>
-                    <select id="restaurantState"></select>
-                  </div>
-                  <div class="full">
-                    <label>Cidade</label>
-                    <select name="cityId" id="restaurantCity"></select>
-                  </div>
-                </div>
-                <div class="row-wrap">
-                  <button type="submit" class="btn-primary">Criar restaurante</button>
-                  <button type="button" id="useLastOwnerBtn" class="btn-soft">Usar último ownerId</button>
-                </div>
-              </form>
-            </article>
-          </section>
-
-          <section class="grid three-cols">
-            <article class="panel-card">
-              <div class="section-title">
-                <h3>Estados</h3>
-                <p>Cadastre novos estados.</p>
-              </div>
-              <form id="stateForm" class="stack-form compact-form">
-                <label>Nome</label>
-                <input name="name" required />
-                <label>UF</label>
-                <input name="code" maxlength="2" required />
-                <button type="submit" class="btn-primary">Adicionar estado</button>
-              </form>
-              <div id="statesList" class="simple-list"></div>
-            </article>
-
-            <article class="panel-card">
-              <div class="section-title">
-                <h3>Cidades</h3>
-                <p>Escolha o estado e crie uma nova cidade.</p>
-              </div>
-              <form id="cityForm" class="stack-form compact-form">
-                <label>Estado</label>
-                <select name="stateId" id="cityStateSelect"></select>
-                <label>Nome da cidade</label>
-                <input name="name" required />
-                <button type="submit" class="btn-primary">Adicionar cidade</button>
-              </form>
-              <div id="citiesList" class="simple-list"></div>
-            </article>
-
-            <article class="panel-card">
-              <div class="section-title">
-                <h3>Bairros</h3>
-                <p>Escolha a cidade e crie um novo bairro.</p>
-              </div>
-              <form id="neighborhoodForm" class="stack-form compact-form">
-                <label>Estado</label>
-                <select id="neighborhoodStateSelect"></select>
-                <label>Cidade</label>
-                <select name="cityId" id="neighborhoodCitySelect"></select>
-                <label>Nome do bairro</label>
-                <input name="name" required />
-                <button type="submit" class="btn-primary">Adicionar bairro</button>
-              </form>
-              <div id="neighborhoodsList" class="simple-list"></div>
-            </article>
-          </section>
-
-          <section class="panel-card">
-            <div class="section-title">
-              <h3>Resumo rápido</h3>
-              <p>Os cadastros recentes ficam acessíveis aqui para copiar IDs com facilidade.</p>
             </div>
-            <div id="summaryCards" class="summary-grid"></div>
-          </section>
 
-          <section class="panel-card">
-            <div class="section-title">
-              <h3>Categorias de loja</h3>
-              <p>Crie as categorias que os restaurantes podem selecionar (ex.: Lanches, Açaí, Pizzas). Suba o ícone e defina a ordem de exibição.</p>
-            </div>
-            <form id="storeCategoryForm" class="stack-form">
-              <div class="grid two-cols inner-grid">
-                <div>
-                  <label>Nome da categoria</label>
-                  <input id="storeCategoryName" name="name" placeholder="Ex.: Lanches" required />
+            <div class="grid layout-main">
+              <article class="panel-card">
+                <div class="section-title">
+                  <h3>Criar conta de restaurante</h3>
+                  <p>Cria o usuário RESTAURANT e o restaurante vinculado no mesmo fluxo.</p>
                 </div>
-                <div>
-                  <label>Ordem de exibição</label>
-                  <input id="storeCategorySortOrder" name="sortOrder" type="number" min="0" value="0" />
-                </div>
-                <div class="full">
-                  <label>Ícone (URL) — preenchido automaticamente após upload</label>
-                  <input id="storeCategoryIconUrl" name="iconUrl" placeholder="https://..." />
-                </div>
-                <div class="full">
-                  <label>Upload do ícone (JPG / PNG / WEBP, máx. 300 KB)</label>
-                  <div class="row-wrap">
-                    <input id="storeCategoryIconFile" type="file" accept="image/*" class="hidden" />
-                    <button type="button" id="uploadStoreCategoryIconBtn" class="btn-soft">Enviar ícone</button>
-                    <div id="storeCategoryIconPreviewWrap" class="hidden">
-                      <img id="storeCategoryIconPreview" alt="Pré-visualização" style="width:48px;height:48px;border-radius:8px;object-fit:cover;" />
+                <form id="restaurantAccountForm" class="stack-form">
+                  <div class="grid two-cols inner-grid">
+                    <div>
+                      <label>Nome do responsável</label>
+                      <input name="ownerName" required />
+                    </div>
+                    <div>
+                      <label>Telefone do responsável</label>
+                      <input name="ownerPhone" />
+                    </div>
+                    <div>
+                      <label>E-mail</label>
+                      <input name="email" type="email" required />
+                    </div>
+                    <div>
+                      <label>Senha</label>
+                      <input name="password" type="password" minlength="6" required />
+                    </div>
+                    <div>
+                      <label>Nome do restaurante</label>
+                      <input name="restaurantName" required />
+                    </div>
+                    <div>
+                      <label>Telefone do restaurante</label>
+                      <input name="restaurantPhone" />
+                    </div>
+                    <div class="full">
+                      <label>Endereço textual</label>
+                      <input name="address" placeholder="Rua, número, bairro" required />
+                    </div>
+                    <div class="full">
+                      <label>Descrição do restaurante</label>
+                      <textarea name="restaurantDescription" rows="3"></textarea>
+                    </div>
+                    <div class="full">
+                      <label>Logo URL</label>
+                      <input name="restaurantLogoUrl" />
+                    </div>
+                    <div>
+                      <label>Estado</label>
+                      <select id="restaurantAccountState"></select>
+                    </div>
+                    <div>
+                      <label>Cidade</label>
+                      <select name="cityId" id="restaurantAccountCity"></select>
                     </div>
                   </div>
+                  <button type="submit" class="btn-primary">Criar conta restaurante</button>
+                </form>
+              </article>
+
+              <article class="panel-card side-card">
+                <div class="section-title">
+                  <h3>Últimos cadastros</h3>
+                  <p>Copie o ID ou confira o restaurante que acabou de entrar na base.</p>
                 </div>
-              </div>
-              <button type="submit" class="btn-primary">Criar categoria</button>
-            </form>
-            <div id="storeCategoriesList" class="simple-list" style="margin-top:16px;"></div>
+                <div class="row-wrap section-actions compact-actions">
+                  <button id="clearCreatedUsers" class="btn-link" type="button">Limpar histórico local</button>
+                </div>
+                <div id="createdUsersList" class="created-list empty-state">Nenhuma conta criada ainda.</div>
+              </article>
+            </div>
+
+            <div class="grid cards-grid four-grid">
+              <article class="panel-card compact-card">
+                <div class="section-title">
+                  <h3>Estados</h3>
+                  <p>Cadastre novos estados.</p>
+                </div>
+                <form id="stateForm" class="stack-form compact-form">
+                  <label>Nome</label>
+                  <input name="name" required />
+                  <label>UF</label>
+                  <input name="code" maxlength="2" required />
+                  <button type="submit" class="btn-primary">Adicionar estado</button>
+                </form>
+                <div id="statesList" class="simple-list"></div>
+              </article>
+
+              <article class="panel-card compact-card">
+                <div class="section-title">
+                  <h3>Cidades</h3>
+                  <p>Escolha o estado e crie uma nova cidade.</p>
+                </div>
+                <form id="cityForm" class="stack-form compact-form">
+                  <label>Estado</label>
+                  <select name="stateId" id="cityStateSelect"></select>
+                  <label>Nome da cidade</label>
+                  <input name="name" required />
+                  <button type="submit" class="btn-primary">Adicionar cidade</button>
+                </form>
+                <div id="citiesList" class="simple-list"></div>
+              </article>
+
+              <article class="panel-card compact-card">
+                <div class="section-title">
+                  <h3>Bairros</h3>
+                  <p>Escolha a cidade e crie um novo bairro.</p>
+                </div>
+                <form id="neighborhoodForm" class="stack-form compact-form">
+                  <label>Estado</label>
+                  <select id="neighborhoodStateSelect"></select>
+                  <label>Cidade</label>
+                  <select name="cityId" id="neighborhoodCitySelect"></select>
+                  <label>Nome do bairro</label>
+                  <input name="name" required />
+                  <button type="submit" class="btn-primary">Adicionar bairro</button>
+                </form>
+                <div id="neighborhoodsList" class="simple-list"></div>
+              </article>
+
+              <article class="panel-card compact-card">
+                <div class="section-title">
+                  <h3>Categorias de loja</h3>
+                  <p>Crie as categorias que os restaurantes podem selecionar.</p>
+                </div>
+                <form id="storeCategoryForm" class="stack-form compact-form">
+                  <label>Nome da categoria</label>
+                  <input id="storeCategoryName" name="name" placeholder="Ex.: Lanches" required />
+                  <label>Ordem de exibição</label>
+                  <input id="storeCategorySortOrder" name="sortOrder" type="number" min="0" value="0" />
+                  <label>Ícone (URL)</label>
+                  <input id="storeCategoryIconUrl" name="iconUrl" placeholder="https://..." />
+                  <div class="row-wrap compact-actions">
+                    <input id="storeCategoryIconFile" type="file" accept="image/*" class="hidden" />
+                    <button type="button" id="uploadStoreCategoryIconBtn" class="btn-soft">Enviar ícone</button>
+                    <div id="storeCategoryIconPreviewWrap" class="hidden preview-wrap">
+                      <img id="storeCategoryIconPreview" alt="Pré-visualização" />
+                    </div>
+                  </div>
+                  <button type="submit" class="btn-primary">Criar categoria</button>
+                </form>
+                <div id="storeCategoriesList" class="simple-list"></div>
+              </article>
+            </div>
+
+            <div class="grid two-cols split-grid">
+              <article class="panel-card">
+                <div class="section-title">
+                  <h3>Criar cupom promocional</h3>
+                  <p>Cadastre cupons da API admin com percentual, valor mínimo, teto e limite de usos.</p>
+                </div>
+                <form id="couponForm" class="stack-form">
+                  <div class="grid two-cols inner-grid">
+                    <div>
+                      <label>Código</label>
+                      <input name="code" maxlength="32" placeholder="PROMO10" required />
+                    </div>
+                    <div>
+                      <label>Desconto (%)</label>
+                      <input name="discountPercent" type="number" min="0.01" step="0.01" required />
+                    </div>
+                    <div>
+                      <label>Teto do desconto</label>
+                      <input name="maxDiscountAmount" type="number" min="0" step="0.01" value="0" required />
+                    </div>
+                    <div>
+                      <label>Pedido mínimo</label>
+                      <input name="minOrderAmount" type="number" min="0" step="0.01" value="0" required />
+                    </div>
+                    <div>
+                      <label>Quantidade máxima de usos</label>
+                      <input name="maxUses" type="number" min="1" step="1" value="1" required />
+                    </div>
+                    <div>
+                      <label>Ativo</label>
+                      <select name="isActive">
+                        <option value="true">Sim</option>
+                        <option value="false">Não</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label>Início (opcional)</label>
+                      <input name="startsAt" type="datetime-local" />
+                    </div>
+                    <div>
+                      <label>Fim (opcional)</label>
+                      <input name="endsAt" type="datetime-local" />
+                    </div>
+                  </div>
+                  <button type="submit" class="btn-primary">Criar cupom</button>
+                </form>
+              </article>
+
+              <article class="panel-card side-card">
+                <div class="section-title">
+                  <h3>Cupons recentes</h3>
+                  <p>Veja rapidamente o que está ativo, inativo e quantos usos ainda restam.</p>
+                </div>
+                <div id="couponList" class="coupon-list empty-state">Nenhum cupom carregado.</div>
+              </article>
+            </div>
           </section>
 
-          <section class="panel-card">
-            <div class="section-title">
-              <h3>Faturamento e fechamento</h3>
-              <p>Selecione o período, desconte cancelados automaticamente, aplique a taxa de 7% e exporte em planilha CSV ou PDF.</p>
-            </div>
-            <form id="billingFilterForm" class="stack-form">
-              <div class="grid two-cols inner-grid billing-grid">
-                <div>
-                  <label>Restaurante</label>
-                  <select id="billingRestaurantId" required></select>
-                </div>
-                <div>
-                  <label>Taxa (%)</label>
-                  <input id="billingCommissionPercent" type="number" min="0" max="100" step="0.01" value="7" />
-                </div>
-                <div>
-                  <label>Data inicial</label>
-                  <input id="billingStartDate" type="date" required />
-                </div>
-                <div>
-                  <label>Data final</label>
-                  <input id="billingEndDate" type="date" required />
-                </div>
-                <div>
-                  <label>Vencimento sugerido</label>
-                  <input id="billingDueDate" type="date" />
-                </div>
-                <div>
-                  <label>Observações do fechamento</label>
-                  <input id="billingNotes" placeholder="Ex.: fechamento março, pagar via Pix" />
-                </div>
+          <section class="page-panel hidden" data-page-panel="restaurantes">
+            <div class="page-head page-head-spread">
+              <div>
+                <h2>Restaurantes</h2>
+                <p>Veja toda a base e faça a desativação forçada pelo admin.</p>
               </div>
-              <div class="row-wrap">
-                <button type="submit" class="btn-primary">Gerar fechamento</button>
+              <div class="notice-card inline-note">
+                <strong>Observação importante</strong>
+                <span>A API atual permite que o restaurante também altere o próprio status. O bloqueio irreversível depende de ajuste no backend.</span>
               </div>
-            </form>
-
-            <div id="billingReportMeta" class="billing-meta"></div>
-            <div id="billingSummaryCards" class="summary-grid billing-summary-grid"></div>
-
-            <div id="billingReportActions" class="row-wrap hidden report-actions">
-              <button id="billingExportCsvBtn" type="button" class="btn-soft">Baixar planilha CSV</button>
-              <button id="billingExportPdfBtn" type="button" class="btn-soft">Gerar PDF / imprimir</button>
-              <button id="billingSaveCycleBtn" type="button" class="btn-primary">Salvar fechamento no backend</button>
             </div>
 
-            <div class="report-table-wrap">
-              <table class="report-table">
-                <thead>
-                  <tr>
-                    <th>Linha</th>
-                    <th>Pedido</th>
-                    <th>Cliente</th>
-                    <th>Status</th>
-                    <th>Pagamento</th>
-                    <th>Total</th>
-                    <th>Cancelado</th>
-                    <th>Base 7%</th>
-                    <th>Comissão</th>
-                  </tr>
-                </thead>
-                <tbody id="billingReportBody"></tbody>
-              </table>
+            <div class="panel-card">
+              <div class="toolbar">
+                <div class="toolbar-field">
+                  <label>Buscar restaurante</label>
+                  <input id="restaurantSearchInput" placeholder="Nome, telefone ou cidade" />
+                </div>
+                <div class="toolbar-field small-field">
+                  <label>Status</label>
+                  <select id="restaurantStatusFilter">
+                    <option value="all">Todos</option>
+                    <option value="active">Ativos</option>
+                    <option value="inactive">Inativos</option>
+                  </select>
+                </div>
+                <button type="button" id="refreshRestaurantsBtn" class="btn-soft">Atualizar lista</button>
+              </div>
+
+              <div id="restaurantAdminStats" class="summary-grid compact-summary"></div>
+              <div id="restaurantList" class="restaurant-list empty-state">Nenhum restaurante encontrado.</div>
+            </div>
+          </section>
+
+          <section class="page-panel hidden" data-page-panel="status">
+            <div class="page-head page-head-spread">
+              <div>
+                <h2>Status da aplicação</h2>
+                <p>Visão rápida da operação com base nos dados disponíveis hoje na API.</p>
+              </div>
+              <button type="button" id="refreshStatusBtn" class="btn-primary">Atualizar métricas</button>
+            </div>
+
+            <div class="notice-card">
+              <strong>Como esta tela calcula os números</strong>
+              <span>Restaurantes vêm da API oficial. Pedidos do dia, semana e mês são agregados a partir dos pedidos de cada restaurante. O total geral de usuários ainda depende de um endpoint dedicado no backend.</span>
+            </div>
+
+            <div id="appStatusCards" class="summary-grid status-summary"></div>
+            <div class="grid two-cols split-grid">
+              <article class="panel-card">
+                <div class="section-title">
+                  <h3>Saúde da base</h3>
+                  <p>Indicadores simples para acompanhar volume e disponibilidade.</p>
+                </div>
+                <div id="statusHighlights" class="simple-list"></div>
+              </article>
+              <article class="panel-card">
+                <div class="section-title">
+                  <h3>Leitura operacional</h3>
+                  <p>Resumo textual para bater o olho e entender o momento do app.</p>
+                </div>
+                <div id="statusNarrative" class="narrative-card"></div>
+              </article>
             </div>
           </section>
         </main>
