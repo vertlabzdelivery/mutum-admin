@@ -637,7 +637,7 @@ function renderRestaurantAdminList() {
           <span class="tag">Horário: ${escapeHtml(restaurant.openingStatusLabel || 'Não informado')}</span>
         </div>
         <div class="restaurant-actions">
-          <span class="soft-text">${restaurant.isActive !== false ? 'Admin pode desativar este restaurante agora.' : 'Restaurante desativado manualmente pelo admin.'}</span>
+          <span class="soft-text">${restaurant.isActive !== false ? 'Admin pode desativar este restaurante agora.' : 'Restaurante desativado pelo admin. O restaurante não pode se reativar sozinho.'}</span>
           <button
             type="button"
             class="status-toggle ${restaurant.isActive !== false ? 'turn-off' : 'turn-on'}"
@@ -661,7 +661,7 @@ function renderRestaurantAdminList() {
       await runWithButtonLoading(button, nextActive ? 'Reativando...' : 'Desativando...', async () => {
         try {
           await apiRequest('PATCH', `/restaurants/${button.dataset.restaurantStatus}/status`, { isActive: nextActive }, true);
-          setStatus(nextActive ? 'Restaurante reativado.' : 'Restaurante desativado.');
+          setStatus(nextActive ? 'Restaurante reativado pelo admin.' : 'Restaurante desativado pelo admin.');
           await loadRestaurants();
         } catch (error) {
           setStatus(error.message || 'Não foi possível alterar o status do restaurante.', true);
