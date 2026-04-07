@@ -16,6 +16,7 @@ const state = {
   restaurants: [],
   storeCategories: [],
   promotionalCoupons: [],
+  paymentMethods: [],
   citiesByState: new Map(),
   neighborhoodsByCity: new Map(),
   appMetrics: null,
@@ -262,6 +263,7 @@ function bindForms() {
   document.getElementById('cityForm')?.addEventListener('submit', handleCityCreate);
   document.getElementById('neighborhoodForm')?.addEventListener('submit', handleNeighborhoodCreate);
   document.getElementById('couponForm')?.addEventListener('submit', handleCouponCreate);
+  document.getElementById('paymentMethodForm')?.addEventListener('submit', handlePaymentMethodCreate);
   document.getElementById('storeCategoryForm')?.addEventListener('submit', handleStoreCategoryCreate);
   document.getElementById('uploadStoreCategoryIconBtn')?.addEventListener('click', () => document.getElementById('storeCategoryIconFile').click());
   document.getElementById('storeCategoryIconFile')?.addEventListener('change', handleStoreCategoryIconUpload);
@@ -293,7 +295,7 @@ function bindToolbar() {
 }
 
 async function loadInitialData() {
-  await Promise.all([loadStates(), loadRestaurants(), loadStoreCategories(), loadCoupons()]);
+  await Promise.all([loadStates(), loadRestaurants(), loadStoreCategories(), loadCoupons(), loadPaymentMethods()]);
 }
 
 async function handleRestaurantAccountCreate(event) {
@@ -365,6 +367,81 @@ async function handleNeighborhoodCreate(event) {
     } catch (error) {
       setStatus(error.message || 'Erro ao criar bairro.', true);
     }
+  });
+}
+
+
+async function handlePaymentMethodCreate(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const data = Object.fromEntries(new FormData(form).entries());
+  const body = {
+    code: String(data.code || '').trim(),
+    name: String(data.name || '').trim(),
+    description: String(data.description || '').trim() || undefined,
+    sortOrder: Number(data.sortOrder || 0),
+    isActive: String(data.isActive || 'true') !== 'false',
+  };
+  await runWithButtonLoading(event.submitter || form.querySelector('button[type="submit"]'), 'Criando...', async () => {
+    try {
+      await apiRequest('POST', '/admin/payment-methods', body, true);
+      form.reset();
+      setStatus(`Método ${body.name} criado com sucesso.`);
+      await loadPaymentMethods();
+    } catch (error) {
+      setStatus(error.message || 'Erro ao criar método de pagamento.', true);
+    }
+  });
+}
+
+async function loadPaymentMethods() {
+  try {
+    const items = await apiRequest('GET', '/admin/payment-methods', null, true);
+    state.paymentMethods = Array.isArray(items) ? items : [];
+    renderPaymentMethodsList();
+  } catch (error) {
+    state.paymentMethods = [];
+    renderPaymentMethodsList(error.message || 'Não foi possível carregar os métodos de pagamento.');
+  }
+}
+
+async function handleTogglePaymentMethodStatus(id, isActive, button) {
+  await runWithButtonLoading(button, isActive ? 'Ativando...' : 'Desativando...', async () => {
+    try {
+      await apiRequest('PATCH', `/admin/payment-methods/${id}/status`, { isActive }, true);
+      setStatus(isActive ? 'Método reativado.' : 'Método desativado.');
+      await loadPaymentMethods();
+    } catch (error) {
+      setStatus(error.message || 'Erro ao atualizar o método.', true);
+    }
+  });
+}
+
+function renderPaymentMethodsList(errorMessage = '') {
+  const el = document.getElementById('paymentMethodsList');
+  if (!el) return;
+  if (errorMessage) {
+    el.innerHTML = `<div class="empty-state">${escapeHtml(errorMessage)}</div>`;
+    return;
+  }
+  if (!state.paymentMethods.length) {
+    el.innerHTML = '<div class="empty-state">Nenhum método cadastrado ainda.</div>';
+    return;
+  }
+  el.innerHTML = state.paymentMethods.map((item) => `
+    <div class="list-item payment-method-admin-item">
+      <div>
+        <strong>${escapeHtml(item.name || item.code)}</strong>
+        <small>${escapeHtml(item.description || item.code || '')}</small>
+      </div>
+      <div class="row-wrap compact-actions">
+        <span class="state-pill ${item.isActive ? 'active' : 'inactive'}">${item.isActive ? 'Ativo' : 'Inativo'}</span>
+        <button class="btn-soft" type="button" data-toggle-payment-method="${escapeAttribute(item.id)}" data-next-active="${item.isActive ? 'false' : 'true'}">${item.isActive ? 'Desativar' : 'Ativar'}</button>
+      </div>
+    </div>`).join('');
+
+  el.querySelectorAll('[data-toggle-payment-method]').forEach((button) => {
+    button.addEventListener('click', () => handleTogglePaymentMethodStatus(button.dataset.togglePaymentMethod, button.dataset.nextActive === 'true', button));
   });
 }
 
@@ -458,11 +535,17 @@ async function loadStates() {
 
 async function loadRestaurants() {
   try {
-    const restaurants = await apiRequest('GET', '/restaurants', null, true);
-    state.restaurants = Array.isArray(restaurants) ? restaurants : [];
-  } catch {
-    const restaurants = await apiRequest('GET', '/restaurants');
-    state.restaurants = Array.isArray(restaurants) ? restaurants : [];
+    const response = await apiRequest('GET', '/restaurants?page=1&limit=200', null, true);
+    state.restaurants = Array.isArray(response)
+      ? response
+      : Array.isArray(response?.data)
+        ? response.data
+        : Array.isArray(response?.items)
+          ? response.items
+          : [];
+  } catch (error) {
+    state.restaurants = [];
+    setStatus(error.message || 'Não foi possível carregar os restaurantes.', true);
   }
   renderRestaurantAdminList();
   renderRestaurantAdminStats();

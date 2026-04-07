@@ -225,6 +225,35 @@
                 </form>
                 <div id="storeCategoriesList" class="simple-list"></div>
               </article>
+            
+              <article class="panel-card compact-card">
+                <div class="section-title">
+                  <h3>Métodos de pagamento</h3>
+                  <p>Crie as formas de pagamento que os restaurantes poderão selecionar.</p>
+                </div>
+                <form id="paymentMethodForm" class="stack-form compact-form">
+                  <label>Código</label>
+                  <select name="code" required>
+                    <option value="CASH">Dinheiro</option>
+                    <option value="PIX">PIX</option>
+                    <option value="CREDIT_CARD">Cartão de crédito</option>
+                    <option value="DEBIT_CARD">Cartão de débito</option>
+                  </select>
+                  <label>Nome exibido</label>
+                  <input name="name" placeholder="Ex.: Cartão de crédito" required />
+                  <label>Descrição</label>
+                  <input name="description" placeholder="Texto opcional" />
+                  <label>Ordem</label>
+                  <input name="sortOrder" type="number" min="0" value="0" />
+                  <label>Status inicial</label>
+                  <select name="isActive">
+                    <option value="true">Ativo</option>
+                    <option value="false">Inativo</option>
+                  </select>
+                  <button type="submit" class="btn-primary">Adicionar método</button>
+                </form>
+                <div id="paymentMethodsList" class="simple-list"></div>
+              </article>
             </div>
 
             <div class="grid two-cols split-grid">
