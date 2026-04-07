@@ -182,10 +182,22 @@ function initLogin() {
       try {
         const body = Object.fromEntries(new FormData(form).entries());
         const auth = await apiRequest('POST', '/auth/login', body);
-        const me = await apiRequest('GET', '/auth/me', null, true);
-        const resolvedRole = extractResolvedRole(me, auth);
-        if (resolvedRole !== 'ADMIN') throw new Error('Somente ADMIN pode usar este painel.');
         persistAuth(auth);
+
+        let me = null;
+        try {
+          me = await apiRequest('GET', '/auth/me', null, true);
+        } catch (error) {
+          // Se /auth/me falhar logo após o login, ainda usamos os dados vindos do próprio /auth/login.
+          // Isso evita travar a entrada quando o token acabou de ser emitido e a checagem extra falha.
+          me = null;
+        }
+
+        const resolvedRole = extractResolvedRole(me, auth, state.currentUser);
+        if (resolvedRole !== 'ADMIN') {
+          clearAuth();
+          throw new Error('Somente ADMIN pode usar este painel.');
+        }
         state.currentUser = { ...(auth.user || {}), ...(typeof me === 'object' ? me : {}), role: resolvedRole };
         saveJson(STORAGE_KEYS.user, state.currentUser);
         await render();
